@@ -3,16 +3,17 @@ import type { ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
-export type ButtonSize = "sm" | "md";
+export type ButtonSize = "xs" | "sm" | "md";
 
 const variants: Record<ButtonVariant, string> = {
   primary: "bg-brand text-white hover:bg-brand-strong",
-  secondary: "border border-line bg-panel text-ink hover:bg-neutral-soft",
+  secondary: "border border-line-strong bg-raised text-ink hover:bg-neutral-soft",
   ghost: "text-muted hover:bg-neutral-soft hover:text-ink",
-  danger: "bg-danger text-white hover:bg-red-800",
+  danger: "bg-danger/90 text-white hover:bg-danger",
 };
 
 const sizes: Record<ButtonSize, string> = {
+  xs: "h-7 px-2 text-xs",
   sm: "h-8 px-3 text-sm",
   md: "h-10 px-4 text-sm",
 };

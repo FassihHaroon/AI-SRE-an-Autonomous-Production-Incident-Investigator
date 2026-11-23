@@ -36,6 +36,7 @@ development).
 
 | Document | What's in it |
 |----------|--------------|
+| [docs/frontend.md](docs/frontend.md) | Web console: screens, live SSE progress, approval flow, states, tests |
 | [docs/knowledge.md](docs/knowledge.md) | Knowledge base: ingestion pipeline, retrieval, design decisions, evaluation |
 | [docs/agent.md](docs/agent.md) | Investigation engine: workflow graph, nodes, stop conditions, confidence, approval, CLI |
 | [docs/mcp.md](docs/mcp.md) | MCP tool servers: run/configure, tool contract, every tool, remediation safety, sample calls |
@@ -146,6 +147,19 @@ uv run python -m ai_sre.agent approve <investigation-id> --approver <your-name> 
 Works without an LLM key (deterministic rule-based reasoner); `--reasoner llm` uses Gemini for
 intake and planning. Guide: [docs/agent.md](docs/agent.md).
 
+### From the web console
+
+```bash
+AI_SRE_MCP_REMEDIATION_ENABLED=true uv run poe mcp   # MCP tool servers on :8300
+uv run poe api                                         # API on :8010
+uv run poe web                                         # UI on http://127.0.0.1:5173
+```
+
+Ask a question on **Overview** or **Investigations**. The workspace streams progress over SSE
+(plan, tool calls, hypotheses, root cause), proposals wait on **Approvals** for a confirmed
+human decision, and the **Report** tab shows the root cause, confidence, alternatives and
+citations. Screens and behaviour: [docs/frontend.md](docs/frontend.md).
+
 ## MCP tool servers
 
 The agent investigates through MCP tools, not pasted telemetry. Full guide: [docs/mcp.md](docs/mcp.md).
@@ -170,7 +184,7 @@ npm --prefix frontend ci                 # frontend deps
 
 docker compose up -d postgres redis      # data stores only
 uv run poe migrate                       # apply migrations
-uv run poe api                           # API on http://127.0.0.1:8010 (reload)
+uv run poe api                           # API on http://127.0.0.1:8010
 uv run poe web                           # UI on http://127.0.0.1:5173 (proxies /api → 8010)
 ```
 

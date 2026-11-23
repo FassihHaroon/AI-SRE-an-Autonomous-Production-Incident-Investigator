@@ -35,7 +35,7 @@ async function parseProblem(response: Response): Promise<ProblemDetails | undefi
   }
 }
 
-export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
   const response = await fetch(path, { ...init, headers });
@@ -43,4 +43,43 @@ export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(response.status, await parseProblem(response));
   }
   return (await response.json()) as T;
+}
+
+export function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(path, init);
+}
+
+function withBody(method: string, body: unknown, init?: RequestInit): RequestInit {
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+  return { ...init, method, headers, body: JSON.stringify(body) };
+}
+
+export function apiPost<T>(path: string, body: unknown = {}, init?: RequestInit): Promise<T> {
+  return request<T>(path, withBody("POST", body, init));
+}
+
+export function apiPut<T>(path: string, body: unknown, init?: RequestInit): Promise<T> {
+  return request<T>(path, withBody("PUT", body, init));
+}
+
+/** Human-readable message for any error thrown by the client or fetch. */
+export function errorMessage(error: unknown): string {
+  if (error instanceof ApiError) return error.problem?.title ?? error.message;
+  if (error instanceof Error) return error.message;
+  return "Unexpected error";
+}
+
+export function qs(
+  params: Record<string, string | number | boolean | string[] | null | undefined>,
+): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") continue;
+    if (Array.isArray(value)) {
+      for (const v of value) search.append(key, v);
+    } else search.set(key, String(value));
+  }
+  const text = search.toString();
+  return text ? `?${text}` : "";
 }

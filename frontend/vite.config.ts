@@ -24,6 +24,16 @@ export default defineConfig({
   build: {
     // Maps are generated for debugging but not referenced from the shipped bundle.
     sourcemap: "hidden",
+    rollupOptions: {
+      output: {
+        // Long-lived vendor chunks; charts are the heaviest dependency.
+        manualChunks: {
+          react: ["react", "react-dom", "react-router"],
+          query: ["@tanstack/react-query"],
+          charts: ["recharts"],
+        },
+      },
+    },
   },
   test: {
     environment: "jsdom",

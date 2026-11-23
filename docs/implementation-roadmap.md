@@ -310,7 +310,20 @@ ablation on investigation accuracy (needs the evaluation harness).
 
 ---
 
-### Phase 8 — Frontend (10 days)
+### Phase 8 — Frontend (10 days) — ✅ core delivered early as Phase 6 (2026-11-23)
+
+**As delivered** ([frontend.md](frontend.md)): dark SRE console (React 19, TS, Vite, Tailwind 4,
+TanStack Query, Recharts) with 9 screens on real endpoints: overview, investigation workspace
+(progress, plan, hypotheses, evidence/tool history, live timeline), AI investigation interface
+(question, follow-ups, report, citations, confidence, alternatives), service health, metrics
+explorer (multi-service, windows, time-shifted comparison), incident history (hybrid search,
+filters, similar incidents), remediation approval (confirmation dialog, `confirm: true`), tool
+execution details, settings (agent limits persisted server-side). SSE with `Last-Event-ID`
+resume, de-duplication, reconnect and polling fallback; loading/empty/error/retry states on
+every panel. Backend: investigation service + Postgres event store (migration 0003), platform,
+knowledge and settings routes. 48 Vitest tests. Deferred to Phase 7/8 proper: auth and roles,
+generated OpenAPI types, Playwright suite.
+
 
 **Scope**
 - Vite + React + TS + Tailwind + TanStack Query + Router; generated API types; auth flow

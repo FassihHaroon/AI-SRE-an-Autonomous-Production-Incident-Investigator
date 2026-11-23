@@ -196,6 +196,16 @@ class KnowledgeStore:
         )
         return [dict(r) for r in rows]
 
+    async def list_documents(self, filters: Filters, limit: int = 200) -> list[dict[str, Any]]:
+        where, args = filters.sql(2)
+        rows = await self.pool().fetch(
+            f"SELECT {DOC_COLUMNS}, d.metadata FROM knowledge_documents d WHERE {where} "  # noqa: S608 - parameterised
+            "ORDER BY d.doc_timestamp DESC NULLS LAST LIMIT $1",
+            limit,
+            *args,
+        )
+        return [dict(r) for r in rows]
+
     async def vocabulary_coverage(self, query: str) -> tuple[int, int]:
         """(query terms present anywhere in the corpus, query terms). Out-of-domain questions
         mention things the knowledge base never talks about (e.g. 'kafka', 'certificate')."""

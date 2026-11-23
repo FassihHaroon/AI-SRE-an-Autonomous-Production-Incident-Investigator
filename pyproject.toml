@@ -61,6 +61,8 @@ known-first-party = ["ai_sre", "ai_sre_simulator", "ai_sre_evals"]
 "backend/src/ai_sre/mcp_servers/*.py" = ["E501"]
 "backend/src/ai_sre/agent/*.py" = ["E501"]
 "backend/src/ai_sre/knowledge/*.py" = ["E501"]
+"backend/src/ai_sre/services/repository.py" = ["E501"]
+"backend/src/ai_sre/api/routes/*.py" = ["E501"]
 "backend/tests/agent/*.py" = ["E501"]
 "backend/tests/knowledge/*.py" = ["E501"]
 
@@ -106,7 +108,8 @@ lint-py = [
 ]
 test-py = { cmd = "pytest", help = "Unit tests (no external services needed)" }
 test-integration = { cmd = "pytest -m integration", help = "Needs: docker compose up -d postgres redis" }
-api = { cmd = "uvicorn ai_sre.main:app --reload --port 8010", help = "Run the API locally with reload" }
+api = { cmd = "python -m ai_sre.api --port 8010", help = "Run the API locally (selector event loop on Windows for the Postgres checkpointer)" }
+api-reload = { cmd = "uvicorn ai_sre.main:app --reload --port 8010", help = "API with auto-reload (Linux/macOS; on Windows the checkpointer falls back to memory)" }
 migrate = { cmd = "alembic -c backend/alembic.ini upgrade head", help = "Apply DB migrations" }
 llm-smoke = { cmd = "python -m ai_sre.integrations.llm", help = "Send one prompt to the configured LLM provider" }
 

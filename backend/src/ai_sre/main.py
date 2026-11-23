@@ -5,14 +5,15 @@ Run locally with ``uv run poe api``, or in Docker via ``uvicorn ai_sre.main:app`
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
 
 from ai_sre import __version__
 from ai_sre.api import router
 from ai_sre.api.errors import register_error_handlers
+from ai_sre.api.runtime import build_runtime
 from ai_sre.config import Settings, get_settings
 from ai_sre.db.postgres import create_engine
 from ai_sre.db.redis import create_redis
@@ -22,7 +23,11 @@ from ai_sre.observability.middleware import RequestContextMiddleware
 log = get_logger(__name__)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+RuntimeBuilder = Callable[[FastAPI, Settings, AsyncExitStack], Awaitable[None]]
+
+
+def create_app(settings: Settings | None = None, runtime: RuntimeBuilder | None = None) -> FastAPI:
+    """``runtime`` builds the application services (tests inject fakes)."""
     settings = settings or get_settings()
     configure_logging(settings.log_level, settings.effective_log_format)
 
@@ -35,6 +40,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.redis = create_redis(
             settings.redis_url, settings.dependency_check_timeout_seconds
         )
+        stack = AsyncExitStack()
+        await stack.__aenter__()
+        await (runtime or build_runtime)(app, settings, stack)
         log.info(
             "app.startup",
             version=__version__,
@@ -45,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await stack.aclose()
             await app.state.redis.aclose()
             await app.state.db_engine.dispose()
             log.info("app.shutdown")
