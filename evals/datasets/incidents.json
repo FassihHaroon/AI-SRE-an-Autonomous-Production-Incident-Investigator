@@ -1,0 +1,1798 @@
+{
+  "name": "ai-sre-incidents",
+  "version": "1.0.0",
+  "description": "Incident scenarios with ground truth for the AI SRE investigator. Faults use the simulator's fault types; worlds are generated deterministically from them (evals/src/ai_sre_evals/world.py).",
+  "scenarios": [
+    {
+      "id": "S01-orders-n-plus-one-deploy",
+      "title": "Orders deploy introduces an N+1 query and saturates the DB pool",
+      "description": "orders-service 2.4.0 adds line items to the order-history endpoint with one query per item. Pool waits and timeouts follow; the gateway passes the 503s on. An unrelated gateway release went out 4 minutes earlier.",
+      "query": "Why has API latency increased and why are orders failing in the last 15 minutes?",
+      "tags": [
+        "recent_deployment",
+        "database_bottleneck",
+        "misleading_symptoms"
+      ],
+      "injected_fault": {
+        "sim_scenario": "orders-n-plus-one-deploy",
+        "faults": [
+          {
+            "type": "slow_db_queries",
+            "target": "orders-service",
+            "onset_minutes_ago": 11,
+            "params": {},
+            "caused_by": "d-481"
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-479",
+            "service": "api-gateway",
+            "kind": "deploy",
+            "version": "3.8.1",
+            "previous_version": "3.8.0",
+            "status": "succeeded",
+            "minutes_ago": 16,
+            "changes_summary": "Checkout banner copy update; bump httpx to 0.28.1",
+            "author": "a.rahman"
+          },
+          {
+            "id": "d-481",
+            "service": "orders-service",
+            "kind": "deploy",
+            "version": "2.4.0",
+            "previous_version": "2.3.1",
+            "status": "succeeded",
+            "minutes_ago": 12,
+            "changes_summary": "Order history: include line items for each order (mobile app v5)",
+            "author": "m.okafor"
+          }
+        ]
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "bad_deploy",
+          "component": "orders-service",
+          "trigger_ref": "d-481"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [
+          {
+            "category": "database_degradation",
+            "component": "postgres"
+          }
+        ],
+        "affected_services": [
+          "api-gateway",
+          "orders-service"
+        ],
+        "evidence": [
+          "deployments.list_recent_deployments",
+          "database.get_connection_pool_status",
+          "database.get_slow_queries",
+          "metrics.detect_metric_anomalies"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "deployments.get_deployment_details",
+          "metrics.compare_metric_windows",
+          "database.get_connection_pool_status",
+          "database.get_slow_queries",
+          "database.get_database_health"
+        ],
+        "remediation": {
+          "action": "rollback_deployment_simulation",
+          "target": "orders-service",
+          "keywords": []
+        },
+        "unsafe_actions": [
+          "restart_service_simulation"
+        ],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S02-redis-outage",
+      "title": "Redis becomes unreachable",
+      "description": "The Redis host black-holes traffic. Carts fail, catalog reads fall back to the database, orders are charged but cannot be queued for fulfilment. No deployment in the window.",
+      "query": "Carts are returning errors and some orders are failing, what is going on?",
+      "tags": [
+        "redis_failure",
+        "queue_failure"
+      ],
+      "injected_fault": {
+        "sim_scenario": "redis-outage",
+        "faults": [
+          {
+            "type": "redis_failure",
+            "target": "shop-cache",
+            "onset_minutes_ago": 8,
+            "params": {
+              "mode": "timeout"
+            }
+          }
+        ],
+        "deployments": []
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "cache_failure",
+          "component": "redis"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "api-gateway",
+          "orders-service",
+          "fulfilment-worker"
+        ],
+        "evidence": [
+          "infrastructure.get_dependency_status",
+          "logs.aggregate_errors",
+          "metrics.detect_metric_anomalies"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "logs.search_logs",
+          "infrastructure.get_service_status"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "redis"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation",
+          "restart_service_simulation"
+        ],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S03-payments-provider-errors",
+      "title": "Upstream payments provider returns errors",
+      "description": "The third-party payments provider fails about half of the charge calls with 503. Order placement fails; nothing changed on our side.",
+      "query": "Customers report checkout failures when placing orders",
+      "tags": [
+        "dependency_failure"
+      ],
+      "injected_fault": {
+        "sim_scenario": "payments-provider-errors",
+        "faults": [
+          {
+            "type": "dependency_errors",
+            "target": "payments-provider",
+            "onset_minutes_ago": 9,
+            "params": {
+              "error_rate": 0.5
+            }
+          }
+        ],
+        "deployments": []
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "dependency_failure",
+          "component": "payments-provider"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "orders-service",
+          "api-gateway"
+        ],
+        "evidence": [
+          "infrastructure.get_dependency_status",
+          "logs.aggregate_errors"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "metrics.get_service_metrics",
+          "logs.search_logs"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "payments provider"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation"
+        ],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S04-db-network-latency",
+      "title": "Network latency on the path to PostgreSQL",
+      "description": "A degraded network path adds ~120 ms to every round trip to the database. Every DB-backed endpoint on every service slows down in proportion to its query count while the database itself is idle.",
+      "query": "Everything feels slow: API latency is up across the shop for the last 20 minutes",
+      "tags": [
+        "network",
+        "database_bottleneck",
+        "misleading_symptoms"
+      ],
+      "injected_fault": {
+        "sim_scenario": "db-network-latency",
+        "faults": [
+          {
+            "type": "db_network_latency",
+            "target": "shop-db",
+            "onset_minutes_ago": 10,
+            "params": {
+              "latency_ms": 120
+            }
+          }
+        ],
+        "deployments": []
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "infrastructure",
+          "component": "postgres"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [
+          {
+            "category": "database_degradation",
+            "component": "postgres"
+          }
+        ],
+        "affected_services": [
+          "api-gateway",
+          "orders-service"
+        ],
+        "evidence": [
+          "database.get_database_metrics",
+          "database.get_database_health"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "database.get_database_metrics",
+          "database.get_database_health",
+          "database.get_slow_queries"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "network"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation"
+        ],
+        "severity": "SEV3"
+      }
+    },
+    {
+      "id": "S05-db-connection-leak",
+      "title": "Feature flag leaks DB connections until the pool is exhausted",
+      "description": "A config change enables the audit-trail flag on orders-service; a code path leaves transactions open, connections sit idle in transaction and the pool runs dry.",
+      "query": "orders-service is timing out and orders are failing",
+      "tags": [
+        "recent_deployment",
+        "database_bottleneck"
+      ],
+      "injected_fault": {
+        "sim_scenario": "db-connection-leak",
+        "faults": [
+          {
+            "type": "db_pool_exhaustion",
+            "target": "orders-service",
+            "onset_minutes_ago": 12,
+            "params": {},
+            "caused_by": "d-490"
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-490",
+            "service": "orders-service",
+            "kind": "config_change",
+            "version": "2.3.1-cfg.42",
+            "previous_version": "2.3.1",
+            "status": "succeeded",
+            "minutes_ago": 14,
+            "changes_summary": "Enable audit_trail feature flag",
+            "author": "s.ito"
+          }
+        ]
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "config_change",
+          "component": "orders-service",
+          "trigger_ref": "d-490"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [
+          {
+            "category": "database_degradation",
+            "component": "postgres"
+          }
+        ],
+        "affected_services": [
+          "orders-service",
+          "api-gateway"
+        ],
+        "evidence": [
+          "deployments.list_recent_deployments",
+          "database.get_connection_pool_status",
+          "database.get_database_health"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "database.get_connection_pool_status",
+          "database.get_database_health",
+          "deployments.get_deployment_details"
+        ],
+        "remediation": {
+          "action": "rollback_deployment_simulation",
+          "target": "orders-service",
+          "keywords": []
+        },
+        "unsafe_actions": [],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S06-gateway-failed-canary",
+      "title": "Failed api-gateway canary keeps serving traffic",
+      "description": "api-gateway 3.9.0 rejects a configuration value; the canary fails health checks and the deploy is marked failed, but the broken canary replicas (25%) were never scaled down.",
+      "query": "About a quarter of API requests are failing with 500s",
+      "tags": [
+        "recent_deployment"
+      ],
+      "injected_fault": {
+        "sim_scenario": "gateway-failed-canary",
+        "faults": [
+          {
+            "type": "failed_deployment",
+            "target": "api-gateway",
+            "onset_minutes_ago": 8,
+            "params": {
+              "version": "3.9.0"
+            },
+            "caused_by": "d-495"
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-495",
+            "service": "api-gateway",
+            "kind": "deploy",
+            "version": "3.9.0",
+            "previous_version": "3.8.0",
+            "status": "failed",
+            "minutes_ago": 9,
+            "changes_summary": "Upstream timeout settings per route",
+            "author": "a.rahman",
+            "failure_reason": "canary failed health checks (25% of replicas)"
+          }
+        ]
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "failed_deploy",
+          "component": "api-gateway",
+          "trigger_ref": "d-495"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "api-gateway"
+        ],
+        "evidence": [
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "logs.get_error_logs"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "logs.get_error_logs",
+          "deployments.get_deployment_details"
+        ],
+        "remediation": {
+          "action": "rollback_deployment_simulation",
+          "target": "api-gateway",
+          "keywords": []
+        },
+        "unsafe_actions": [],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S07-gateway-memory-leak",
+      "title": "api-gateway deploy adds an unbounded cache (memory leak)",
+      "description": "api-gateway 3.10.0 adds an in-process response cache without a bound. Memory grows until the container is OOM-killed; the gateway restarts every few minutes and latency spikes.",
+      "query": "api-gateway keeps restarting and latency spikes every few minutes",
+      "tags": [
+        "recent_deployment",
+        "resource_exhaustion"
+      ],
+      "injected_fault": {
+        "sim_scenario": "gateway-memory-leak",
+        "faults": [
+          {
+            "type": "memory_pressure",
+            "target": "api-gateway",
+            "onset_minutes_ago": 25,
+            "params": {
+              "mb_per_second": 0.7,
+              "restarts": 3
+            },
+            "caused_by": "d-502"
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-502",
+            "service": "api-gateway",
+            "kind": "deploy",
+            "version": "3.10.0",
+            "previous_version": "3.8.0",
+            "status": "succeeded",
+            "minutes_ago": 28,
+            "changes_summary": "Add in-process response cache for catalog",
+            "author": "j.lee"
+          }
+        ]
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "bad_deploy",
+          "component": "api-gateway",
+          "trigger_ref": "d-502"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [
+          {
+            "category": "resource_exhaustion",
+            "component": "api-gateway"
+          }
+        ],
+        "affected_services": [
+          "api-gateway"
+        ],
+        "evidence": [
+          "deployments.list_recent_deployments",
+          "infrastructure.get_resource_usage",
+          "infrastructure.get_service_status"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "infrastructure.get_resource_usage",
+          "infrastructure.get_service_status",
+          "infrastructure.get_container_health"
+        ],
+        "remediation": {
+          "action": "rollback_deployment_simulation",
+          "target": "api-gateway",
+          "keywords": []
+        },
+        "unsafe_actions": [],
+        "severity": "SEV3"
+      }
+    },
+    {
+      "id": "S08-worker-deploy-backlog",
+      "title": "Worker deploy breaks shipping labels; the queue backs up",
+      "description": "fulfilment-worker 1.7.0 switches to a new label API client that times out; jobs fail and retry, and the fulfilment queue grows. The API looks healthy.",
+      "query": "Orders are not being fulfilled; the fulfilment queue keeps growing",
+      "tags": [
+        "recent_deployment",
+        "queue_failure"
+      ],
+      "injected_fault": {
+        "sim_scenario": "worker-deploy-backlog",
+        "faults": [
+          {
+            "type": "worker_backlog",
+            "target": "fulfilment-worker",
+            "onset_minutes_ago": 14,
+            "params": {
+              "failure_rate": 0.6
+            },
+            "caused_by": "d-510"
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-510",
+            "service": "fulfilment-worker",
+            "kind": "deploy",
+            "version": "1.7.0",
+            "previous_version": "1.6.2",
+            "status": "succeeded",
+            "minutes_ago": 15,
+            "changes_summary": "Shipping labels: switch to v2 label API client",
+            "author": "r.diaz"
+          }
+        ]
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "bad_deploy",
+          "component": "fulfilment-worker",
+          "trigger_ref": "d-510"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [
+          {
+            "category": "worker_degradation",
+            "component": "fulfilment-worker"
+          }
+        ],
+        "affected_services": [
+          "fulfilment-worker"
+        ],
+        "evidence": [
+          "deployments.list_recent_deployments",
+          "metrics.detect_metric_anomalies",
+          "logs.aggregate_errors"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "metrics.get_service_metrics",
+          "logs.get_error_logs",
+          "metrics.compare_metric_windows"
+        ],
+        "remediation": {
+          "action": "rollback_deployment_simulation",
+          "target": "fulfilment-worker",
+          "keywords": []
+        },
+        "unsafe_actions": [
+          "scale_service_simulation"
+        ],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S09-worker-backlog-no-deploy",
+      "title": "Shipping-label provider slowness backs up the queue",
+      "description": "The external shipping-label service is slow; a fraction of jobs time out. No deployment; the worker simply cannot keep up.",
+      "query": "The fulfilment queue is backing up",
+      "tags": [
+        "queue_failure"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "worker_backlog",
+            "target": "fulfilment-worker",
+            "onset_minutes_ago": 12,
+            "params": {
+              "delay_ms": 1500,
+              "failure_rate": 0.2
+            }
+          }
+        ],
+        "deployments": []
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "worker_degradation",
+          "component": "fulfilment-worker"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "fulfilment-worker"
+        ],
+        "evidence": [
+          "metrics.detect_metric_anomalies",
+          "logs.aggregate_errors"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "metrics.get_service_metrics",
+          "logs.get_error_logs"
+        ],
+        "remediation": {
+          "action": "scale_service_simulation",
+          "target": "fulfilment-worker",
+          "keywords": []
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation"
+        ],
+        "severity": "SEV3"
+      }
+    },
+    {
+      "id": "S10-traffic-surge",
+      "title": "Traffic surge beyond capacity",
+      "description": "A marketing push triples traffic. Latency rises on the gateway and orders-service; nothing is broken, the services are under-provisioned.",
+      "query": "Latency is up on the API, is something broken?",
+      "tags": [
+        "capacity",
+        "misleading_symptoms"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "traffic_surge",
+            "target": "loadgen",
+            "onset_minutes_ago": 10,
+            "params": {
+              "multiplier": 3
+            }
+          }
+        ],
+        "deployments": []
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "capacity",
+          "component": "api-gateway"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "api-gateway",
+          "orders-service"
+        ],
+        "evidence": [
+          "metrics.detect_metric_anomalies"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "metrics.get_service_metrics"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "scale"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation",
+          "restart_service_simulation"
+        ],
+        "severity": "SEV3"
+      }
+    },
+    {
+      "id": "S11-slow-queries-no-deploy",
+      "title": "Query-plan regression without a deployment",
+      "description": "An index on order_items was dropped by a manual DBA change (not in the deployment log). Order lookups become sequential scans; the orders pool saturates.",
+      "query": "Checkout is slow and some orders time out",
+      "tags": [
+        "database_bottleneck"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "slow_db_queries",
+            "target": "orders-service",
+            "onset_minutes_ago": 10,
+            "params": {
+              "query": "SELECT * FROM order_items WHERE order_id = $1",
+              "name": "get_order_items"
+            }
+          }
+        ],
+        "deployments": []
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "database_degradation",
+          "component": "postgres"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "orders-service",
+          "api-gateway"
+        ],
+        "evidence": [
+          "database.get_slow_queries",
+          "database.get_connection_pool_status"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "database.get_connection_pool_status",
+          "database.get_slow_queries",
+          "database.get_database_health"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "postgres"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation"
+        ],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S12-n-plus-one-missing-logs-db",
+      "title": "N+1 deploy while logs and database telemetry are unavailable",
+      "description": "Same failure as S01, but Loki and the database monitoring endpoints are down: only metrics, deployments, infrastructure and the knowledge base answer.",
+      "query": "Orders API is slow and failing since about 10 minutes ago",
+      "tags": [
+        "missing_evidence",
+        "recent_deployment",
+        "database_bottleneck"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "slow_db_queries",
+            "target": "orders-service",
+            "onset_minutes_ago": 10,
+            "params": {},
+            "caused_by": "d-521"
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-521",
+            "service": "orders-service",
+            "kind": "deploy",
+            "version": "2.4.0",
+            "previous_version": "2.3.1",
+            "status": "succeeded",
+            "minutes_ago": 11,
+            "changes_summary": "Order history: include line items for each order",
+            "author": "m.okafor"
+          }
+        ]
+      },
+      "world": {
+        "unavailable": [
+          "logs.*",
+          "database.*"
+        ]
+      },
+      "expected": {
+        "root_cause": {
+          "category": "bad_deploy",
+          "component": "orders-service",
+          "trigger_ref": "d-521"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [
+          {
+            "category": "database_degradation",
+            "component": "postgres"
+          }
+        ],
+        "affected_services": [
+          "orders-service",
+          "api-gateway"
+        ],
+        "evidence": [
+          "deployments.list_recent_deployments",
+          "metrics.detect_metric_anomalies",
+          "metrics.compare_metric_windows"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "metrics.compare_metric_windows",
+          "metrics.get_service_metrics"
+        ],
+        "remediation": {
+          "action": "rollback_deployment_simulation",
+          "target": "orders-service",
+          "keywords": []
+        },
+        "unsafe_actions": [],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S13-redis-outage-missing-infra",
+      "title": "Redis outage while infrastructure monitoring is down",
+      "description": "Redis is unreachable, and the infrastructure/dependency monitoring and anomaly detector are also down. Only logs and per-service metrics remain.",
+      "query": "Carts and checkout are failing for many users",
+      "tags": [
+        "missing_evidence",
+        "redis_failure"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "redis_failure",
+            "target": "shop-cache",
+            "onset_minutes_ago": 7,
+            "params": {
+              "mode": "timeout"
+            }
+          }
+        ],
+        "deployments": []
+      },
+      "world": {
+        "unavailable": [
+          "infrastructure.*",
+          "metrics.detect_metric_anomalies"
+        ]
+      },
+      "expected": {
+        "root_cause": {
+          "category": "cache_failure",
+          "component": "redis"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "api-gateway",
+          "orders-service",
+          "fulfilment-worker"
+        ],
+        "evidence": [
+          "logs.aggregate_errors",
+          "metrics.get_service_metrics"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "metrics.get_service_metrics",
+          "logs.search_logs"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "redis"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation"
+        ],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S14-payments-with-late-deploy",
+      "title": "Payments provider failure, orders deploy shipped after the onset",
+      "description": "Payments started failing 12 minutes ago; an orders-service release went out 6 minutes ago, after the errors began. The deploy is innocent: symptoms predate it and do not change at the deploy.",
+      "query": "Order placement has been failing for a while and we deployed orders-service a few minutes ago; was it the deploy?",
+      "tags": [
+        "conflicting_evidence",
+        "misleading_symptoms",
+        "dependency_failure",
+        "recent_deployment"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "dependency_errors",
+            "target": "payments-provider",
+            "onset_minutes_ago": 12,
+            "params": {
+              "error_rate": 0.5
+            }
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-530",
+            "service": "orders-service",
+            "kind": "deploy",
+            "version": "2.3.2",
+            "previous_version": "2.3.1",
+            "status": "succeeded",
+            "minutes_ago": 6,
+            "changes_summary": "Fix rounding of order totals for multi-quantity lines",
+            "author": "s.ito"
+          }
+        ]
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "dependency_failure",
+          "component": "payments-provider"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "orders-service",
+          "api-gateway"
+        ],
+        "evidence": [
+          "infrastructure.get_dependency_status",
+          "logs.aggregate_errors"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "metrics.compare_metric_windows",
+          "deployments.get_deployment_details"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "payments provider"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation"
+        ],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S15-gateway-errors-from-orders-leak",
+      "title": "Gateway errors after a gateway release, caused by an orders config change",
+      "description": "api-gateway shipped at 13 min; orders-service enabled a leaking feature flag at 12 min. Gateway 5xx are pass-through from orders-service pool exhaustion.",
+      "query": "api-gateway error rate jumped right after today's gateway release",
+      "tags": [
+        "conflicting_evidence",
+        "misleading_symptoms",
+        "recent_deployment",
+        "database_bottleneck"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "db_pool_exhaustion",
+            "target": "orders-service",
+            "onset_minutes_ago": 11,
+            "params": {},
+            "caused_by": "d-540"
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-541",
+            "service": "api-gateway",
+            "kind": "deploy",
+            "version": "3.8.1",
+            "previous_version": "3.8.0",
+            "status": "succeeded",
+            "minutes_ago": 13,
+            "changes_summary": "Checkout banner copy update",
+            "author": "a.rahman"
+          },
+          {
+            "id": "d-540",
+            "service": "orders-service",
+            "kind": "config_change",
+            "version": "2.3.1-cfg.43",
+            "previous_version": "2.3.1",
+            "status": "succeeded",
+            "minutes_ago": 12,
+            "changes_summary": "Enable audit_trail feature flag",
+            "author": "s.ito"
+          }
+        ]
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "config_change",
+          "component": "orders-service",
+          "trigger_ref": "d-540"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [
+          {
+            "category": "database_degradation",
+            "component": "postgres"
+          }
+        ],
+        "affected_services": [
+          "api-gateway",
+          "orders-service"
+        ],
+        "evidence": [
+          "deployments.list_recent_deployments",
+          "database.get_connection_pool_status",
+          "database.get_database_health"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "database.get_connection_pool_status",
+          "database.get_database_health"
+        ],
+        "remediation": {
+          "action": "rollback_deployment_simulation",
+          "target": "orders-service",
+          "keywords": []
+        },
+        "unsafe_actions": [],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S16-redis-and-payments",
+      "title": "Redis slowness and payments errors at the same time",
+      "description": "Two independent failures: Redis latency (carts slow, some cache errors) from 9 min, and payments-provider errors from 7 min.",
+      "query": "Checkout is failing and carts are slow",
+      "tags": [
+        "multiple_failures",
+        "redis_failure",
+        "dependency_failure"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "redis_failure",
+            "target": "shop-cache",
+            "onset_minutes_ago": 9,
+            "params": {
+              "mode": "latency"
+            }
+          },
+          {
+            "type": "dependency_errors",
+            "target": "payments-provider",
+            "onset_minutes_ago": 7,
+            "params": {
+              "error_rate": 0.5
+            }
+          }
+        ],
+        "deployments": []
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "dependency_failure",
+          "component": "payments-provider"
+        },
+        "also_correct": [
+          {
+            "category": "cache_failure",
+            "component": "redis"
+          }
+        ],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "api-gateway",
+          "orders-service",
+          "fulfilment-worker"
+        ],
+        "evidence": [
+          "infrastructure.get_dependency_status",
+          "logs.aggregate_errors"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "logs.search_logs"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": []
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation"
+        ],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S17-memory-leak-and-worker-backlog",
+      "title": "Gateway memory leak deploy plus an unrelated worker backlog",
+      "description": "api-gateway 3.10.0 leaks memory (restarts) and, independently, the label provider slows the worker.",
+      "query": "api-gateway keeps restarting and fulfilment is lagging behind",
+      "tags": [
+        "multiple_failures",
+        "resource_exhaustion",
+        "queue_failure",
+        "recent_deployment"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "memory_pressure",
+            "target": "api-gateway",
+            "onset_minutes_ago": 20,
+            "params": {
+              "mb_per_second": 0.7,
+              "restarts": 3
+            },
+            "caused_by": "d-550"
+          },
+          {
+            "type": "worker_backlog",
+            "target": "fulfilment-worker",
+            "onset_minutes_ago": 10,
+            "params": {
+              "failure_rate": 0.3
+            }
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-550",
+            "service": "api-gateway",
+            "kind": "deploy",
+            "version": "3.10.0",
+            "previous_version": "3.8.0",
+            "status": "succeeded",
+            "minutes_ago": 22,
+            "changes_summary": "Add in-process response cache for catalog",
+            "author": "j.lee"
+          }
+        ]
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "bad_deploy",
+          "component": "api-gateway",
+          "trigger_ref": "d-550"
+        },
+        "also_correct": [
+          {
+            "category": "worker_degradation",
+            "component": "fulfilment-worker"
+          }
+        ],
+        "acceptable_alternatives": [
+          {
+            "category": "resource_exhaustion",
+            "component": "api-gateway"
+          }
+        ],
+        "affected_services": [
+          "api-gateway",
+          "fulfilment-worker"
+        ],
+        "evidence": [
+          "deployments.list_recent_deployments",
+          "infrastructure.get_resource_usage",
+          "metrics.detect_metric_anomalies"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "infrastructure.get_resource_usage",
+          "infrastructure.get_service_status"
+        ],
+        "remediation": {
+          "action": "rollback_deployment_simulation",
+          "target": "api-gateway",
+          "keywords": []
+        },
+        "unsafe_actions": [],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S18-vague-slowness-no-cause",
+      "title": "Vague slowness report with nothing wrong",
+      "description": "A user reports the site feels slow. Latency p99 moved within normal variance; a handful of transient errors; no deployment, all dependencies healthy. The right answer is that no root cause is identifiable.",
+      "query": "Users say the site feels a bit slow today",
+      "tags": [
+        "no_obvious_root_cause"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [],
+        "deployments": []
+      },
+      "world": {
+        "knowledge_confident": false,
+        "overrides": {
+          "anomalies": [
+            {
+              "service": "api-gateway",
+              "signal": "latency_p99",
+              "value": 0.31,
+              "onset_minutes_ago": 8
+            }
+          ],
+          "errors": [
+            {
+              "service": "api-gateway",
+              "template": "client closed connection before response",
+              "count": 6,
+              "onset_minutes_ago": 20
+            }
+          ],
+          "similar_incidents": [],
+          "runbooks": []
+        }
+      },
+      "expected": {
+        "root_cause": null,
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [],
+        "evidence": [],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "evidence"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation",
+          "restart_service_simulation"
+        ],
+        "severity": "SEV4"
+      }
+    },
+    {
+      "id": "S19-innocent-deploy-no-cause",
+      "title": "Question blames a deploy that changed nothing",
+      "description": "orders-service 2.3.2 (an email-template typo fix) shipped 20 minutes ago. A few errors happened before it. No signal changed; the deploy did not break anything.",
+      "query": "Did the 2.3.2 orders-service deploy break anything?",
+      "tags": [
+        "no_obvious_root_cause",
+        "misleading_symptoms",
+        "recent_deployment"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [],
+        "deployments": [
+          {
+            "id": "d-560",
+            "service": "orders-service",
+            "kind": "deploy",
+            "version": "2.3.2",
+            "previous_version": "2.3.1",
+            "status": "succeeded",
+            "minutes_ago": 20,
+            "changes_summary": "Fix typo in order confirmation email template",
+            "author": "p.nair"
+          }
+        ]
+      },
+      "world": {
+        "knowledge_confident": false,
+        "overrides": {
+          "errors": [
+            {
+              "service": "orders-service",
+              "template": "GET /orders/<n> 404",
+              "count": 8,
+              "onset_minutes_ago": 26
+            }
+          ],
+          "similar_incidents": [],
+          "runbooks": []
+        }
+      },
+      "expected": {
+        "root_cause": null,
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [],
+        "evidence": [],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "metrics.compare_metric_windows",
+          "deployments.get_deployment_details"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "evidence"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation"
+        ],
+        "severity": "SEV4"
+      }
+    },
+    {
+      "id": "S20-db-latency-with-worker-config-change",
+      "title": "Database network latency with a misleading worker config change",
+      "description": "Network latency to PostgreSQL slows every service. A fulfilment-worker config change (log level) and an old rollback are in the deployment log.",
+      "query": "API and order processing have been slow for the last 20 minutes",
+      "tags": [
+        "misleading_symptoms",
+        "network",
+        "database_bottleneck",
+        "recent_deployment"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "db_network_latency",
+            "target": "shop-db",
+            "onset_minutes_ago": 10,
+            "params": {
+              "latency_ms": 150
+            }
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-570",
+            "service": "fulfilment-worker",
+            "kind": "config_change",
+            "version": "1.6.2-cfg.7",
+            "previous_version": "1.6.2",
+            "status": "succeeded",
+            "minutes_ago": 11,
+            "changes_summary": "Raise log level to DEBUG for label client",
+            "author": "ci-bot"
+          },
+          {
+            "id": "d-569",
+            "service": "orders-service",
+            "kind": "rollback",
+            "version": "2.3.1",
+            "previous_version": "2.3.2",
+            "status": "succeeded",
+            "minutes_ago": 50,
+            "changes_summary": "Rollback to 2.3.1",
+            "author": "oncall"
+          }
+        ]
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "infrastructure",
+          "component": "postgres"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [
+          {
+            "category": "database_degradation",
+            "component": "postgres"
+          }
+        ],
+        "affected_services": [
+          "api-gateway",
+          "orders-service"
+        ],
+        "evidence": [
+          "database.get_database_metrics",
+          "database.get_database_health"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "database.get_database_metrics",
+          "database.get_database_health"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "network"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation"
+        ],
+        "severity": "SEV3"
+      }
+    },
+    {
+      "id": "S21-redis-outage-after-gateway-deploy",
+      "title": "Redis outage one minute after an unrelated gateway release",
+      "description": "api-gateway 3.8.1 (copy change) finished at 9 min; Redis became unreachable at 8 min. The timing points at the deploy, but orders-service and the worker fail the same way and Redis is down.",
+      "query": "Errors everywhere right after the gateway release, should we roll it back?",
+      "tags": [
+        "misleading_symptoms",
+        "conflicting_evidence",
+        "recent_deployment",
+        "redis_failure"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "redis_failure",
+            "target": "shop-cache",
+            "onset_minutes_ago": 8,
+            "params": {
+              "mode": "timeout"
+            }
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-580",
+            "service": "api-gateway",
+            "kind": "deploy",
+            "version": "3.8.1",
+            "previous_version": "3.8.0",
+            "status": "succeeded",
+            "minutes_ago": 9.5,
+            "changes_summary": "Checkout banner copy update",
+            "author": "a.rahman"
+          }
+        ]
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "cache_failure",
+          "component": "redis"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "api-gateway",
+          "orders-service",
+          "fulfilment-worker"
+        ],
+        "evidence": [
+          "infrastructure.get_dependency_status",
+          "logs.aggregate_errors"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "infrastructure.get_service_status",
+          "metrics.compare_metric_windows"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "redis"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation"
+        ],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S22-payments-provider-down",
+      "title": "Payments provider completely down",
+      "description": "The payments provider refuses connections. No order can be placed.",
+      "query": "Nobody can place orders right now, checkout is completely down",
+      "tags": [
+        "dependency_failure"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "dependency_outage",
+            "target": "payments-provider",
+            "onset_minutes_ago": 6,
+            "params": {}
+          }
+        ],
+        "deployments": []
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "dependency_failure",
+          "component": "payments-provider"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "orders-service",
+          "api-gateway"
+        ],
+        "evidence": [
+          "infrastructure.get_dependency_status",
+          "logs.aggregate_errors"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "metrics.get_service_metrics"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "payments provider"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation"
+        ],
+        "severity": "SEV1"
+      }
+    },
+    {
+      "id": "S23-n-plus-one-flaky-telemetry",
+      "title": "N+1 deploy while metrics and logs backends are flaky",
+      "description": "Same failure as S01; the anomaly detector and the log aggregation time out once before answering (exercises retries).",
+      "query": "Order history endpoint is very slow since the last release",
+      "tags": [
+        "recent_deployment",
+        "database_bottleneck"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "slow_db_queries",
+            "target": "orders-service",
+            "onset_minutes_ago": 9,
+            "params": {},
+            "caused_by": "d-591"
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-591",
+            "service": "orders-service",
+            "kind": "deploy",
+            "version": "2.4.0",
+            "previous_version": "2.3.1",
+            "status": "succeeded",
+            "minutes_ago": 10,
+            "changes_summary": "Order history: include line items for each order",
+            "author": "m.okafor"
+          }
+        ]
+      },
+      "world": {
+        "flaky": [
+          "metrics.detect_metric_anomalies",
+          "logs.aggregate_errors"
+        ]
+      },
+      "expected": {
+        "root_cause": {
+          "category": "bad_deploy",
+          "component": "orders-service",
+          "trigger_ref": "d-591"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [
+          {
+            "category": "database_degradation",
+            "component": "postgres"
+          }
+        ],
+        "affected_services": [
+          "orders-service",
+          "api-gateway"
+        ],
+        "evidence": [
+          "deployments.list_recent_deployments",
+          "database.get_connection_pool_status",
+          "database.get_slow_queries"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "metrics.compare_metric_windows",
+          "database.get_connection_pool_status",
+          "database.get_slow_queries",
+          "database.get_database_health"
+        ],
+        "remediation": {
+          "action": "rollback_deployment_simulation",
+          "target": "orders-service",
+          "keywords": []
+        },
+        "unsafe_actions": [],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S24-orders-500s-after-deploy",
+      "title": "orders-service returns 500s after a release (no resource symptom)",
+      "description": "orders-service 2.5.0 has a bug in a serializer; 10% of requests fail with 500. No pool, queue or memory symptom; only the error rate and the deploy correlate.",
+      "query": "orders-service started returning 500s about ten minutes ago",
+      "tags": [
+        "recent_deployment"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "http_errors",
+            "target": "orders-service",
+            "onset_minutes_ago": 9,
+            "params": {
+              "rate": 0.1
+            },
+            "caused_by": "d-600",
+            "knowledge": false
+          }
+        ],
+        "deployments": [
+          {
+            "id": "d-600",
+            "service": "orders-service",
+            "kind": "deploy",
+            "version": "2.5.0",
+            "previous_version": "2.3.1",
+            "status": "succeeded",
+            "minutes_ago": 10,
+            "changes_summary": "Refactor order serializer",
+            "author": "k.ward"
+          }
+        ]
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "bad_deploy",
+          "component": "orders-service",
+          "trigger_ref": "d-600"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "orders-service"
+        ],
+        "evidence": [
+          "deployments.list_recent_deployments",
+          "metrics.detect_metric_anomalies",
+          "logs.aggregate_errors"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "metrics.compare_metric_windows",
+          "logs.get_error_logs"
+        ],
+        "remediation": {
+          "action": "rollback_deployment_simulation",
+          "target": "orders-service",
+          "keywords": []
+        },
+        "unsafe_actions": [],
+        "severity": "SEV2"
+      }
+    },
+    {
+      "id": "S25-redis-latency",
+      "title": "Redis slow (not down): catalog and carts slower",
+      "description": "Redis answers slowly (800 ms); a fraction of commands time out. Catalog falls back to the database; carts are slow and occasionally fail.",
+      "query": "Catalog pages got slower in the last 15 minutes",
+      "tags": [
+        "redis_failure"
+      ],
+      "injected_fault": {
+        "sim_scenario": null,
+        "faults": [
+          {
+            "type": "redis_failure",
+            "target": "shop-cache",
+            "onset_minutes_ago": 9,
+            "params": {
+              "mode": "latency"
+            }
+          }
+        ],
+        "deployments": []
+      },
+      "world": {},
+      "expected": {
+        "root_cause": {
+          "category": "cache_failure",
+          "component": "redis"
+        },
+        "also_correct": [],
+        "acceptable_alternatives": [],
+        "affected_services": [
+          "api-gateway",
+          "orders-service",
+          "fulfilment-worker"
+        ],
+        "evidence": [
+          "infrastructure.get_dependency_status",
+          "logs.aggregate_errors"
+        ],
+        "tools": [
+          "metrics.detect_metric_anomalies",
+          "deployments.list_recent_deployments",
+          "logs.aggregate_errors",
+          "infrastructure.get_dependency_status",
+          "logs.search_logs"
+        ],
+        "remediation": {
+          "action": "manual",
+          "target": null,
+          "keywords": [
+            "redis"
+          ]
+        },
+        "unsafe_actions": [
+          "rollback_deployment_simulation"
+        ],
+        "severity": "SEV3"
+      }
+    }
+  ]
+}

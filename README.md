@@ -36,6 +36,8 @@ development).
 
 | Document | What's in it |
 |----------|--------------|
+| [docs/evaluation.md](docs/evaluation.md) | Evaluation: dataset of 25 incident scenarios, metrics, how to run and add scenarios, results, limitations |
+| [docs/observability.md](docs/observability.md) | AI observability: OpenTelemetry spans per investigation, tokens/cost/latency, privacy, trace view |
 | [docs/frontend.md](docs/frontend.md) | Web console: screens, live SSE progress, approval flow, states, tests |
 | [docs/knowledge.md](docs/knowledge.md) | Knowledge base: ingestion pipeline, retrieval, design decisions, evaluation |
 | [docs/agent.md](docs/agent.md) | Investigation engine: workflow graph, nodes, stop conditions, confidence, approval, CLI |
@@ -159,6 +161,19 @@ Ask a question on **Overview** or **Investigations**. The workspace streams prog
 (plan, tool calls, hypotheses, root cause), proposals wait on **Approvals** for a confirmed
 human decision, and the **Report** tab shows the root cause, confidence, alternatives and
 citations. Screens and behaviour: [docs/frontend.md](docs/frontend.md).
+
+## Evaluate the agent
+
+```bash
+uv run python -m evaluation.run --dataset evals/datasets/incidents.json
+```
+
+Runs agent configurations over 25 reproducible incident scenarios (misleading, missing and
+conflicting evidence, simultaneous failures, no root cause…) and scores root cause, evidence,
+tool use, severity, remediation, hallucination, latency, tokens and cost. Results land in
+`evals/results/` and on the **Evaluations** page; every investigation also has a **Trace** view
+(OpenTelemetry spans). Guides: [docs/evaluation.md](docs/evaluation.md),
+[docs/observability.md](docs/observability.md).
 
 ## MCP tool servers
 

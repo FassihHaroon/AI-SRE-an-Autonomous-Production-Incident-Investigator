@@ -1,6 +1,7 @@
 import {
   Activity,
   BookOpen,
+  FlaskConical,
   Gauge,
   LayoutDashboard,
   LineChart,
@@ -30,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/services", label: "Service health", icon: Activity },
   { to: "/metrics", label: "Metrics explorer", icon: LineChart },
   { to: "/incidents", label: "Incident history", icon: BookOpen },
+  { to: "/evaluations", label: "Evaluations", icon: FlaskConical },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 

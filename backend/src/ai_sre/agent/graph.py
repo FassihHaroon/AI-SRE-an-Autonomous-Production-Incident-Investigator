@@ -22,6 +22,7 @@ from typing import Any
 import structlog
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
+from opentelemetry.trace import Status, StatusCode
 
 from ai_sre.agent.findings import extract_findings
 from ai_sre.agent.gateway import ToolGateway
@@ -45,6 +46,7 @@ from ai_sre.agent.remediation import (
     snapshot,
     verify,
 )
+from ai_sre.observability.tracing import node_span
 
 logger = structlog.get_logger("agent.graph")
 
@@ -79,21 +81,25 @@ def guarded(name: str) -> Callable[[Node], Node]:
             ):
                 return {}  # skip: route to the report with what we have
             logger.info("node_enter", node=name, investigation=state.get("investigation_id"))
-            for attempt in (1, 2):
-                try:
-                    async with asyncio.timeout(NODE_TIMEOUT_S.get(name, 60.0)):
-                        return await fn(state)
-                except TRANSIENT as exc:
-                    if attempt == 2:
+            with node_span(name, state.get("investigation_id")) as span:
+                for attempt in (1, 2):
+                    span.set_attribute("ai_sre.node.attempts", attempt)
+                    try:
+                        async with asyncio.timeout(NODE_TIMEOUT_S.get(name, 60.0)):
+                            return await fn(state)
+                    except TRANSIENT as exc:
+                        if attempt == 2:
+                            span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
+                            return _failed(name, exc)
+                        await asyncio.sleep(1.0)
+                    except Exception as exc:
+                        if isinstance(exc, asyncio.CancelledError):
+                            raise
+                        if type(exc).__name__ == "GraphInterrupt":
+                            span.set_attribute("ai_sre.node.interrupted", True)
+                            raise
+                        span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
                         return _failed(name, exc)
-                    await asyncio.sleep(1.0)
-                except Exception as exc:
-                    if (
-                        isinstance(exc, asyncio.CancelledError)
-                        or type(exc).__name__ == "GraphInterrupt"
-                    ):
-                        raise
-                    return _failed(name, exc)
             return {}
 
         return run

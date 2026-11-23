@@ -21,6 +21,12 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from ai_sre.agent.models import Decision, Limits
+from ai_sre.observability.tracing import (
+    collector,
+    investigation_span,
+    set_result_attributes,
+    summarize,
+)
 from ai_sre.services.repository import Repository
 
 logger = structlog.get_logger("investigations")
@@ -230,10 +236,40 @@ class InvestigationService:
     def _launch(self, inv_id: str, graph_input: Any, reasoner: str) -> None:
         graph = self.graphs.get(reasoner, self.graph)
         task = asyncio.create_task(
-            self._run(inv_id, graph_input, graph), name=f"investigation-{inv_id}"
+            self._traced_run(inv_id, graph_input, graph, reasoner), name=f"investigation-{inv_id}"
         )
         self._tasks[inv_id] = task
         task.add_done_callback(lambda _t: self._tasks.pop(inv_id, None))
+
+    async def _traced_run(
+        self,
+        inv_id: str,
+        graph_input: Any,
+        graph: CompiledStateGraph[Any, Any, Any, Any],
+        reasoner: str,
+    ) -> None:
+        """One run segment (start, or resume after approval) under an investigation span."""
+        record = await self.repo.get(inv_id) or {}
+        phase = "run" if isinstance(graph_input, dict) else "resume"
+        try:
+            with investigation_span(
+                inv_id, record.get("question", ""), reasoner=reasoner, phase=phase
+            ) as span:
+                await self._run(inv_id, graph_input, graph)
+                set_result_attributes(span, await self.repo.get(inv_id) or {})
+        finally:
+            try:
+                await self.repo.append_spans(inv_id, collector().drain(inv_id))
+            except Exception:
+                logger.exception("trace_persist_failed", investigation=inv_id)
+
+    async def trace(self, inv_id: str) -> dict[str, Any]:
+        """Persisted spans plus any still in memory (a run in progress), with a summary."""
+        spans = await self.repo.spans(inv_id)
+        seen = {s["span_id"] for s in spans}
+        spans += [s for s in collector().peek(inv_id) if s["span_id"] not in seen]
+        spans.sort(key=lambda s: s.get("start") or "")
+        return {"investigation_id": inv_id, "spans": spans, "summary": summarize(spans)}
 
     async def _run(
         self, inv_id: str, graph_input: Any, graph: CompiledStateGraph[Any, Any, Any, Any]

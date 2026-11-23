@@ -39,7 +39,7 @@ _SERVICE_WORDS: list[tuple[str, str]] = [
     (r"payment", "payments-provider"),
 ]
 _SYMPTOMS: list[tuple[str, str]] = [
-    (r"\b5\d\d\b|5xx|errors?|failing|failures?|fail\b", "errors"),
+    (r"\b5\d\d(?:s)?\b|5xx|errors?|failing|failures?|fail\b", "errors"),
     (r"latency|slow|timeouts?|p9\d", "latency"),
     (r"backlog|queue|stuck|not (being )?fulfilled", "backlog"),
     (r"memory|oom|restart", "memory"),
@@ -212,7 +212,12 @@ def targeted_calls(hypotheses: list[Hypothesis], scope: IncidentScope) -> list[P
     window = min(scope.window_minutes, 120)
 
     def add(
-        server: str, tool: str, args: dict[str, Any], purpose: str, h: Hypothesis, prio: int = 1
+        server: str,
+        tool: str,
+        args: dict[str, Any],
+        purpose: str,
+        h: Hypothesis | None,
+        prio: int = 1,
     ) -> None:
         calls.append(
             PlannedCall(
@@ -221,8 +226,35 @@ def targeted_calls(hypotheses: list[Hypothesis], scope: IncidentScope) -> list[P
                 arguments=args,
                 purpose=purpose,
                 priority=prio,
-                hypothesis=h.id,
+                hypothesis=h.id if h else None,
             )
+        )
+
+    if not hypotheses or hypotheses[0].confidence < 0.3:
+        # Triage found no explanation. Look where triage does not: the database server side and
+        # resource pressure, which can degrade services without any deployment.
+        add("database", "get_database_health", {}, "explore: sessions, idle in transaction", None)
+        add(
+            "database",
+            "get_slow_queries",
+            {"top_k": 5, "order_by": "mean_time", "min_calls": 5},
+            "explore: slow statements",
+            None,
+        )
+        add(
+            "database",
+            "get_database_metrics",
+            {"window_minutes": 5},
+            "explore: client query latency",
+            None,
+        )
+        add(
+            "infrastructure",
+            "get_resource_usage",
+            {"window_minutes": 15},
+            "explore: CPU/memory",
+            None,
+            2,
         )
 
     for h in hypotheses[:3]:
@@ -414,9 +446,14 @@ class LLMReasoner:
 
     name = "llm"
 
-    def __init__(self, provider: LLMProvider) -> None:
+    PROMPTS = ("default", "hypothesis_first")
+
+    def __init__(self, provider: LLMProvider, prompt: str = "default") -> None:
+        if prompt not in self.PROMPTS:
+            raise ValueError(f"unknown prompt variant {prompt!r}; one of {self.PROMPTS}")
         self._llm = provider
         self._rules = RuleBasedReasoner()
+        self.prompt = prompt
 
     async def intake(self, question: str) -> IncidentScope:
         base = parse_scope(question)
@@ -445,6 +482,15 @@ class LLMReasoner:
             }
         )
 
+    def _instruction(self) -> str:
+        if self.prompt == "hypothesis_first":
+            return (
+                "For each of the top 3 hypotheses choose the single read-only tool call most likely to "
+                "DISPROVE it (a result that would contradict it), then add calls that confirm the "
+                "mechanism of the leading one. At most 8 calls."
+            )
+        return "Choose up to 8 read-only tool calls that best discriminate between the hypotheses."
+
     async def plan(
         self, scope: IncidentScope, hypotheses: list[Hypothesis], round_: int, done: set[str]
     ) -> tuple[str, list[PlannedCall]]:
@@ -459,7 +505,7 @@ class LLMReasoner:
         )
         prompt = (
             f"Incident: {scope.question}\nServices: {scope.services}\nRound {round_}. Current hypotheses:\n{hyps}\n\n"
-            f"Choose up to 8 read-only tool calls that best discriminate between the hypotheses.\nTools:\n{catalog}"
+            f"{self._instruction()}\nTools:\n{catalog}"
         )
         try:
             parsed, _ = await generate_structured(

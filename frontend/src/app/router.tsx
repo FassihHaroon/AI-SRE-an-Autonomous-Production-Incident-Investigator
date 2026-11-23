@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { ApprovalsPage } from "@/pages/ApprovalsPage";
+import { EvaluationsPage } from "@/pages/EvaluationsPage";
 import { IncidentDetailPage } from "@/pages/IncidentDetailPage";
 import { IncidentsPage } from "@/pages/IncidentsPage";
 import { InvestigationPage } from "@/pages/InvestigationPage";
@@ -13,6 +14,7 @@ import { ServicePage } from "@/pages/ServicePage";
 import { ServicesPage } from "@/pages/ServicesPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { ToolCallPage } from "@/pages/ToolCallPage";
+import { TracePage } from "@/pages/TracePage";
 
 export const routes = [
   {
@@ -23,6 +25,8 @@ export const routes = [
       { path: "investigations", element: <InvestigationsPage /> },
       { path: "investigations/:id", element: <InvestigationPage /> },
       { path: "investigations/:id/tools/:evidenceId", element: <ToolCallPage /> },
+      { path: "investigations/:id/trace", element: <TracePage /> },
+      { path: "evaluations", element: <EvaluationsPage /> },
       { path: "approvals", element: <ApprovalsPage /> },
       { path: "services", element: <ServicesPage /> },
       { path: "services/:name", element: <ServicePage /> },

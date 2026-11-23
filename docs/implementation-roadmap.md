@@ -372,7 +372,18 @@ generated OpenAPI types, Playwright suite.
 
 ---
 
-### Phase 10 — Observability of AI execution (4 days)
+### Phase 10 — Observability of AI execution (4 days) — ✅ delivered with evaluation as Phase 7 (2026-11-23)
+
+**As delivered** ([observability.md](observability.md), [evaluation.md](evaluation.md)):
+OpenTelemetry spans for every investigation (run segments → nodes → MCP tool calls and LLM
+calls) with tokens, latency, estimated cost, retries, errors, iterations, evidence and the
+final result; redaction of credentials and personal data; spans persisted (migration 0004)
+and shown in a trace view; optional console/OTLP export. Evaluation harness: 25-scenario
+dataset with ground truth, deterministic scenario worlds driven by the simulator's fault
+types, programmatic metrics plus an optional model-based judge, configuration comparison
+(rule variants, RAG ablation, two LLM prompts), `python -m evaluation.run`, Markdown/JSON
+reports and an evaluations dashboard.
+
 
 **Scope**
 - OTel SDK in api/worker/simulator; spans per architecture § 8.1 with GenAI attributes;

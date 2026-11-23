@@ -45,6 +45,24 @@ CREATE TABLE IF NOT EXISTS app_settings (
 )
 """
 
+SPANS_DDL = """
+CREATE TABLE IF NOT EXISTS investigation_spans (
+    id                bigserial PRIMARY KEY,
+    investigation_id  text NOT NULL REFERENCES investigations(id) ON DELETE CASCADE,
+    span_id           text NOT NULL,
+    parent_id         text,
+    trace_id          text,
+    name              text NOT NULL,
+    kind              text,
+    started_at        timestamptz,
+    duration_ms       double precision,
+    status            text NOT NULL,
+    attributes        jsonb NOT NULL,
+    UNIQUE (investigation_id, span_id)
+);
+CREATE INDEX IF NOT EXISTS ix_investigation_spans_inv ON investigation_spans (investigation_id, started_at)
+"""
+
 _JSON_FIELDS = ("limits", "root_cause", "approval", "report")
 _UPDATABLE = {"status", "severity", "root_cause", "approval", "report", "error"}
 
@@ -58,6 +76,8 @@ class Repository(Protocol):
         self, inv_id: str, type_: str, payload: dict[str, Any]
     ) -> dict[str, Any]: ...
     async def events_after(self, inv_id: str, seq: int) -> list[dict[str, Any]]: ...
+    async def append_spans(self, inv_id: str, spans: list[dict[str, Any]]) -> None: ...
+    async def spans(self, inv_id: str) -> list[dict[str, Any]]: ...
     async def get_setting(self, key: str) -> Any: ...
     async def put_setting(self, key: str, value: Any) -> None: ...
     async def close(self) -> None: ...
@@ -72,6 +92,7 @@ class MemoryRepository:
         self.records: dict[str, dict[str, Any]] = {}
         self.events: dict[str, list[dict[str, Any]]] = {}
         self.settings: dict[str, Any] = {}
+        self.trace: dict[str, list[dict[str, Any]]] = {}
 
     async def create(self, record: dict[str, Any]) -> None:
         now = _now()
@@ -112,6 +133,12 @@ class MemoryRepository:
 
     async def events_after(self, inv_id: str, seq: int) -> list[dict[str, Any]]:
         return [e for e in self.events.get(inv_id, []) if e["seq"] > seq]
+
+    async def append_spans(self, inv_id: str, spans: list[dict[str, Any]]) -> None:
+        self.trace.setdefault(inv_id, []).extend(spans)
+
+    async def spans(self, inv_id: str) -> list[dict[str, Any]]:
+        return sorted(self.trace.get(inv_id, []), key=lambda s: s.get("start") or "")
 
     async def get_setting(self, key: str) -> Any:
         return self.settings.get(key)
@@ -215,6 +242,64 @@ class PostgresRepository:
             seq,
         )
         return [{**dict(r), "payload": json.loads(r["payload"])} for r in rows]
+
+    async def append_spans(self, inv_id: str, spans: list[dict[str, Any]]) -> None:
+        if not spans:
+            return
+        await self._pool.executemany(
+            "INSERT INTO investigation_spans (investigation_id, span_id, parent_id, trace_id, name, kind, "
+            "started_at, duration_ms, status, attributes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) "
+            "ON CONFLICT (investigation_id, span_id) DO NOTHING",
+            [
+                (
+                    inv_id,
+                    s["span_id"],
+                    s.get("parent_id"),
+                    s.get("trace_id"),
+                    s["name"],
+                    s.get("kind"),
+                    datetime.fromisoformat(s["start"]) if s.get("start") else None,
+                    s.get("duration_ms"),
+                    s.get("status", "ok"),
+                    json.dumps(
+                        {
+                            "attributes": s.get("attributes", {}),
+                            "end": s.get("end"),
+                            "status_message": s.get("status_message"),
+                        },
+                        default=str,
+                    ),
+                )
+                for s in spans
+            ],
+        )
+
+    async def spans(self, inv_id: str) -> list[dict[str, Any]]:
+        rows = await self._pool.fetch(
+            "SELECT * FROM investigation_spans WHERE investigation_id = $1 ORDER BY started_at, id",
+            inv_id,
+        )
+        out = []
+        for r in rows:
+            raw = r["attributes"]
+            extra = json.loads(raw) if isinstance(raw, str) else raw
+            out.append(
+                {
+                    "span_id": r["span_id"],
+                    "parent_id": r["parent_id"],
+                    "trace_id": r["trace_id"],
+                    "name": r["name"],
+                    "kind": r["kind"],
+                    "investigation_id": inv_id,
+                    "start": r["started_at"].isoformat() if r["started_at"] else None,
+                    "end": extra.get("end"),
+                    "duration_ms": r["duration_ms"],
+                    "status": r["status"],
+                    "status_message": extra.get("status_message"),
+                    "attributes": extra.get("attributes", {}),
+                }
+            )
+        return out
 
     async def get_setting(self, key: str) -> Any:
         value = await self._pool.fetchval("SELECT value FROM app_settings WHERE key = $1", key)

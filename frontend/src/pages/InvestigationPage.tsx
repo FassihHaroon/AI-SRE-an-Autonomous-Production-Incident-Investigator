@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { CornerDownRight, Radio, RotateCw, Square } from "lucide-react";
+import { Activity, CornerDownRight, Radio, RotateCw, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
@@ -360,6 +360,13 @@ export function InvestigationPage() {
             <SeverityBadge severity={inv.severity} />
             <InvestigationStatusBadge status={status} />
             <ConnectionIndicator connection={connection} terminal={terminal} onRetry={reconnect} />
+            <Link
+              to={`/investigations/${inv.id}/trace`}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line-strong bg-raised px-3 text-sm text-ink hover:bg-neutral-soft"
+            >
+              <Activity className="size-3.5" aria-hidden="true" />
+              Trace
+            </Link>
             {!terminal ? (
               <Button
                 size="sm"

@@ -98,6 +98,20 @@ async def get_investigation(request: Request, inv_id: str) -> dict[str, Any]:
     return {"investigation": record, "state": await svc.state(inv_id)}
 
 
+@router.get("/{inv_id}/trace")
+async def investigation_trace(request: Request, inv_id: str) -> dict[str, Any]:
+    """OpenTelemetry spans of the investigation (nodes, tool calls, LLM calls) and a summary."""
+    svc = _svc(request)
+    record = await _record(svc, inv_id)
+    trace = await svc.trace(inv_id)
+    return {
+        **trace,
+        "question": record["question"],
+        "status": record["status"],
+        "reasoner": record.get("reasoner"),
+    }
+
+
 @router.get("/{inv_id}/tool-calls/{evidence_id}")
 async def tool_call(request: Request, inv_id: str, evidence_id: str) -> dict[str, Any]:
     svc = _svc(request)

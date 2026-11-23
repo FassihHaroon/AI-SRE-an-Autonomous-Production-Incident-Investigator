@@ -18,6 +18,7 @@ from ai_sre.integrations.llm import (
 )
 from ai_sre.integrations.llm.gemini import GeminiProvider
 from ai_sre.integrations.llm.scripted import ScriptedProvider
+from ai_sre.integrations.llm.traced import TracedLLMProvider
 
 
 class Verdict(BaseModel):
@@ -74,13 +75,17 @@ def test_factory_builds_gemini_without_network_calls() -> None:
     provider = create_llm_provider(
         _settings(llm_provider="gemini", gemini_api_key=SecretStr("k"), gemini_model="m-1")
     )
-    assert isinstance(provider, GeminiProvider)
+    # Every provider comes wrapped for tracing (tokens, latency, cost per request).
+    assert isinstance(provider, TracedLLMProvider)
+    assert isinstance(provider.inner, GeminiProvider)
     assert isinstance(provider, LLMProvider)
     assert provider.model == "m-1"
 
 
 def test_factory_builds_scripted() -> None:
-    assert isinstance(create_llm_provider(_settings(llm_provider="scripted")), ScriptedProvider)
+    provider = create_llm_provider(_settings(llm_provider="scripted"))
+    assert isinstance(provider, TracedLLMProvider)
+    assert isinstance(provider.inner, ScriptedProvider)
 
 
 # ---------------------------------------------------------------- gemini adapter (fake SDK client)

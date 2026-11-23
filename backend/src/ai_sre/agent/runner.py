@@ -26,6 +26,7 @@ from ai_sre.agent.gateway import ToolGateway, http_client_factory
 from ai_sre.agent.graph import Deps, build_graph
 from ai_sre.agent.models import Decision, Limits, Report
 from ai_sre.agent.reasoner import LLMReasoner, Reasoner, RuleBasedReasoner
+from ai_sre.observability.tracing import investigation_span, set_result_attributes
 
 
 class RunResult(BaseModel):
@@ -36,8 +37,11 @@ class RunResult(BaseModel):
 
 
 class Investigator:
-    def __init__(self, graph: CompiledStateGraph[Any, Any, Any, Any]) -> None:
+    def __init__(
+        self, graph: CompiledStateGraph[Any, Any, Any, Any], reasoner: str = "rules"
+    ) -> None:
         self.graph = graph
+        self.reasoner = reasoner
 
     @staticmethod
     def config(investigation_id: str) -> RunnableConfig:
@@ -54,13 +58,21 @@ class Investigator:
             "limits": limits or Limits(),
             "cancel_requested": False,
         }
-        await self.graph.ainvoke(state, self.config(inv_id))
-        return await self.result(inv_id)
+        with investigation_span(inv_id, question, reasoner=self.reasoner) as span:
+            await self.graph.ainvoke(state, self.config(inv_id))
+            result = await self.result(inv_id)
+            set_result_attributes(span, _result_record(result))
+        return result
 
     async def resume(self, investigation_id: str, decisions: list[Decision]) -> RunResult:
         payload: list[dict[str, Any]] = [d.model_dump() for d in decisions]
-        await self.graph.ainvoke(Command(resume=payload), self.config(investigation_id))
-        return await self.result(investigation_id)
+        with investigation_span(
+            investigation_id, "", reasoner=self.reasoner, phase="resume"
+        ) as span:
+            await self.graph.ainvoke(Command(resume=payload), self.config(investigation_id))
+            result = await self.result(investigation_id)
+            set_result_attributes(span, _result_record(result))
+        return result
 
     async def cancel(self, investigation_id: str) -> None:
         await self.graph.aupdate_state(self.config(investigation_id), {"cancel_requested": True})
@@ -80,6 +92,22 @@ class Investigator:
             status="completed" if report else "unknown",
             report=report,
         )
+
+
+def _result_record(result: RunResult) -> dict[str, Any]:
+    report = result.report
+    root = report.root_cause if report else None
+    if root is None and result.approval:
+        root_raw = result.approval.get("root_cause")
+        root_dump = root_raw.model_dump() if isinstance(root_raw, BaseModel) else root_raw
+    else:
+        root_dump = root.model_dump() if root else None
+    return {
+        "status": result.status,
+        "severity": report.severity if report else None,
+        "root_cause": root_dump,
+        "report": report.model_dump(mode="json") if report else None,
+    }
 
 
 def serializer() -> JsonPlusSerializer:
@@ -119,13 +147,13 @@ async def investigator(
     )
     graph = build_graph(deps)
     if checkpointer is not None:
-        yield Investigator(graph.compile(checkpointer=checkpointer))
+        yield Investigator(graph.compile(checkpointer=checkpointer), reasoner.name)
         return
     if postgres_dsn:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
         async with AsyncPostgresSaver.from_conn_string(postgres_dsn, serde=serializer()) as saver:
             await saver.setup()
-            yield Investigator(graph.compile(checkpointer=saver))
+            yield Investigator(graph.compile(checkpointer=saver), reasoner.name)
         return
-    yield Investigator(graph.compile(checkpointer=InMemorySaver(serde=serializer())))
+    yield Investigator(graph.compile(checkpointer=InMemorySaver(serde=serializer())), reasoner.name)

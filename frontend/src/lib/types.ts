@@ -413,3 +413,175 @@ export interface PlatformSettings {
     event_store: string;
   };
 }
+
+// ---------------------------------------------------------------- tracing
+
+export type SpanKind = "investigation" | "node" | "tool" | "llm";
+
+export interface TraceSpan {
+  span_id: string;
+  parent_id: string | null;
+  trace_id: string | null;
+  name: string;
+  kind: SpanKind | null;
+  start: string | null;
+  end: string | null;
+  duration_ms: number | null;
+  status: "ok" | "error";
+  status_message: string | null;
+  attributes: Record<string, unknown>;
+}
+
+export interface TraceSummary {
+  spans: number;
+  duration_ms: number;
+  iterations: number;
+  nodes: Record<string, { executions: number; total_ms: number; errors: number; retries: number }>;
+  tools: {
+    calls: number;
+    errors: number;
+    retries: number;
+    evidence_ok: number;
+    latency_ms: number;
+    avg_latency_ms: number;
+    by_tool: Record<string, { calls: number; errors: number; retries: number; total_ms: number }>;
+  };
+  llm: {
+    calls: number;
+    errors: number;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    latency_ms: number;
+    cost_usd: number;
+    models: string[];
+  };
+  retries: { tools: number; nodes: number };
+  result: Record<string, string | number | boolean>;
+}
+
+export interface InvestigationTrace {
+  investigation_id: string;
+  question: string;
+  status: InvestigationStatus;
+  reasoner: string | null;
+  spans: TraceSpan[];
+  summary: TraceSummary;
+}
+
+// ---------------------------------------------------------------- evaluations
+
+export interface EvalMetrics {
+  n: number;
+  root_cause_accuracy?: number | null;
+  root_cause_exact?: number | null;
+  root_cause_top3?: number | null;
+  evidence_precision?: number | null;
+  evidence_recall?: number | null;
+  retrieval_recall?: number | null;
+  tool_selection_accuracy?: number | null;
+  tool_call_efficiency?: number | null;
+  avg_tool_calls?: number | null;
+  severity_accuracy?: number | null;
+  remediation_accuracy?: number | null;
+  hallucination_rate?: number | null;
+  ungrounded_claim_rate?: number | null;
+  completion_rate?: number | null;
+  avg_latency_ms?: number | null;
+  p95_latency_ms?: number | null;
+  avg_tokens?: number | null;
+  total_tokens?: number;
+  avg_cost_usd?: number | null;
+  total_cost_usd?: number;
+  avg_llm_calls?: number | null;
+  llm_fallback_rate?: number | null;
+}
+
+export interface EvalConfigResult {
+  name: string;
+  description: string;
+  reasoner: string;
+  prompt: string;
+  limits: Record<string, number>;
+  disabled_tools: string[];
+  metrics: EvalMetrics;
+  by_tag: Record<string, EvalMetrics>;
+  judge: {
+    n: number;
+    agreement_with_program: number;
+    avg_explanation_quality: number;
+    avg_actionability: number;
+    unsupported_statements: number;
+  } | null;
+}
+
+export interface EvalRow {
+  scenario: string;
+  config: string;
+  tags: string[];
+  completed: boolean;
+  root_cause_score: number;
+  root_cause_note: string;
+  root_cause_top3: boolean | null;
+  predicted: {
+    category: string | null;
+    component: string | null;
+    trigger_ref: string | null;
+    confidence: number | null;
+    band: string | null;
+  };
+  evidence_precision: number | null;
+  evidence_recall: number | null;
+  tool_selection_accuracy: number | null;
+  tool_call_efficiency: number;
+  tool_calls: number;
+  severity: string | null;
+  severity_expected: string;
+  severity_correct: boolean;
+  remediation_correct: boolean;
+  remediation_note: string;
+  hallucinated: boolean;
+  ungrounded_claims: string[];
+  latency_ms: number;
+  tokens: number;
+  cost_usd: number;
+  tool_errors: number;
+  retries: number;
+  summary: string | null;
+  tools_called: string[];
+  error: string | null;
+  judge?: {
+    verdict: string;
+    explanation_quality: number;
+    actionability: number;
+    rationale: string;
+  } | null;
+}
+
+export interface EvalScenario {
+  id: string;
+  title: string;
+  tags: string[];
+  expected: {
+    root_cause: { category: string; component: string; trigger_ref?: string | null } | null;
+    severity: string;
+    remediation: { action: string; target: string | null; keywords: string[] };
+    affected_services: string[];
+  };
+}
+
+export interface EvalRunSummary {
+  run_id: string;
+  created_at: string;
+  mode: string;
+  dataset: { name: string; version: string; scenarios: number; evaluated: number };
+  configs: { name: string; metrics: EvalMetrics }[];
+}
+
+export interface EvalRun extends Omit<EvalRunSummary, "configs"> {
+  head_to_head: { scenarios: string[]; configs: Record<string, EvalMetrics> } | null;
+  environment: { git_sha: string | null; python: string };
+  configs: EvalConfigResult[];
+  scenarios: EvalScenario[];
+  rows: EvalRow[];
+}

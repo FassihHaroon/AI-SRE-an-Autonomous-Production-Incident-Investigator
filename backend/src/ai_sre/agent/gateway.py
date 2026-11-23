@@ -22,6 +22,7 @@ import structlog
 from mcp import Client
 
 from ai_sre.agent.models import Evidence
+from ai_sre.observability.tracing import finish_tool_span, tool_span
 
 logger = structlog.get_logger("agent.gateway")
 
@@ -131,16 +132,36 @@ class ToolGateway:
         round_: int,
         retries: int | None = None,
     ) -> Evidence:
-        attempts = (self._retries if retries is None else retries) + 1
+        with tool_span(server, tool, arguments, round_) as span:
+            evidence, tried = await self._attempts(
+                server, tool, arguments, round_, (self._retries if retries is None else retries) + 1
+            )
+            finish_tool_span(
+                span,
+                evidence_id=evidence.id,
+                ok=evidence.ok,
+                attempts=tried,
+                error_code=evidence.error_code,
+                result_bytes=len(json.dumps(evidence.data, default=str)) if evidence.data else 0,
+            )
+            return evidence
+
+    async def _attempts(
+        self, server: str, tool: str, arguments: dict[str, Any], round_: int, attempts: int
+    ) -> tuple[Evidence, int]:
         started = time.perf_counter()
         last_code, last_message = "transport_error", "no attempt made"
+        tried = 0
         for attempt in range(attempts):
+            tried = attempt + 1
             try:
                 async with self._connect(server) as client:
                     result = await client.call_tool(tool, arguments)
                 if not result.is_error:
                     data = result.structured_content or {}
-                    return self._evidence(server, tool, arguments, round_, started, data=data)
+                    return self._evidence(
+                        server, tool, arguments, round_, started, data=data
+                    ), tried
                 first = result.content[0] if result.content else None
                 text = getattr(first, "text", None) or "unknown error"
                 last_code, last_message = _parse_error(text)
@@ -153,8 +174,11 @@ class ToolGateway:
         logger.warning(
             "tool_call_failed", server=server, tool=tool, code=last_code, error=last_message[:300]
         )
-        return self._evidence(
-            server, tool, arguments, round_, started, code=last_code, message=last_message
+        return (
+            self._evidence(
+                server, tool, arguments, round_, started, code=last_code, message=last_message
+            ),
+            tried,
         )
 
     def _evidence(

@@ -65,6 +65,9 @@ known-first-party = ["ai_sre", "ai_sre_simulator", "ai_sre_evals"]
 "backend/src/ai_sre/api/routes/*.py" = ["E501"]
 "backend/tests/agent/*.py" = ["E501"]
 "backend/tests/knowledge/*.py" = ["E501"]
+"evals/src/ai_sre_evals/*.py" = ["E501"]
+"evals/tests/*.py" = ["E501", "PT018"]
+"backend/tests/agent/test_tracing.py" = ["E501", "F811"]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
@@ -87,7 +90,7 @@ warn_required_dynamic_aliases = true
 
 # ---------------------------------------------------------------- pytest
 [tool.pytest.ini_options]
-testpaths = ["backend/tests", "simulator/tests"]
+testpaths = ["backend/tests", "simulator/tests", "evals/tests"]
 addopts = "--import-mode=importlib -m 'not integration and not sim' -ra"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
