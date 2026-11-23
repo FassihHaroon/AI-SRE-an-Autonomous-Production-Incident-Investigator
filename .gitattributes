@@ -1,0 +1,5 @@
+# Normalise to LF so files copied into Linux containers work on Windows checkouts.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
