@@ -26,7 +26,16 @@ from ai_sre.agent.models import Evidence
 logger = structlog.get_logger("agent.gateway")
 
 READ_SERVERS = frozenset(
-    {"logs", "metrics", "deployments", "database", "infrastructure", "incidents", "registry"}
+    {
+        "logs",
+        "metrics",
+        "deployments",
+        "database",
+        "infrastructure",
+        "incidents",
+        "knowledge",
+        "registry",
+    }
 )
 TRANSIENT_CODES = frozenset({"timeout", "backend_unavailable"})
 MAX_EVIDENCE_BYTES = 6000

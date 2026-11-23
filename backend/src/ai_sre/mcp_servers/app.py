@@ -15,10 +15,12 @@ the admin token. Tokens are compared in constant time.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hmac
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
 from starlette.applications import Starlette
@@ -34,6 +36,7 @@ from ai_sre.mcp_servers.database import build_database_server
 from ai_sre.mcp_servers.deployments import build_deployments_server
 from ai_sre.mcp_servers.incidents import build_incidents_server
 from ai_sre.mcp_servers.infrastructure import build_infrastructure_server
+from ai_sre.mcp_servers.knowledge import build_knowledge_server
 from ai_sre.mcp_servers.logs import build_logs_server
 from ai_sre.mcp_servers.metrics import build_metrics_server
 from ai_sre.mcp_servers.registry import ServerEntry, build_registry, build_registry_server
@@ -51,8 +54,39 @@ class McpApp:
     backends: Backends
 
 
+class LazyRetriever:
+    """One knowledge store connection pool and embedding model per process, created on first use."""
+
+    def __init__(self, settings: McpSettings) -> None:
+        self._settings = settings
+        self._retriever: Any = None
+        self._lock = asyncio.Lock()
+
+    async def __call__(self) -> Any:
+        async with self._lock:
+            if self._retriever is None:
+                from ai_sre.config import get_settings
+                from ai_sre.knowledge.embeddings import FastEmbedEmbedder
+                from ai_sre.knowledge.retrieval import Retriever
+                from ai_sre.knowledge.store import KnowledgeStore
+
+                dsn = (
+                    self._settings.knowledge_dsn.get_secret_value()
+                    if self._settings.knowledge_dsn
+                    else get_settings().database_url.replace(
+                        "postgresql+asyncpg://", "postgresql://"
+                    )
+                )
+                store = await KnowledgeStore(dsn).open()
+                self._retriever = Retriever(store, FastEmbedEmbedder())
+            return self._retriever
+
+
 def build_entries(
-    settings: McpSettings, backends: Backends, approvals: ApprovalStore
+    settings: McpSettings,
+    backends: Backends,
+    approvals: ApprovalStore,
+    retriever_factory: Any = None,
 ) -> list[ServerEntry]:
     runtime = ToolRuntime(settings.tool_timeout_s, settings.max_result_bytes)
     entries = [
@@ -77,6 +111,12 @@ def build_entries(
             build_incidents_server(settings.incidents_dir, runtime),
             True,
             "Historical incidents (postmortems)",
+        ),
+        ServerEntry(
+            "knowledge",
+            build_knowledge_server(retriever_factory or LazyRetriever(settings), runtime),
+            True,
+            "Knowledge base: incidents, runbooks, procedures, architecture (hybrid retrieval)",
         ),
         ServerEntry(
             "remediation",

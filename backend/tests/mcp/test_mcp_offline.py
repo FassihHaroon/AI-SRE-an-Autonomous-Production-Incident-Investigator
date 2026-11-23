@@ -30,6 +30,12 @@ REQUIRED_TOOLS = {
     "infrastructure": {"get_service_status", "get_container_health", "get_resource_usage",
                        "get_dependency_status"},
     "incidents": {"list_historical_incidents", "get_incident_details", "search_incident_history"},
+    "knowledge": {
+        "search_knowledge",
+        "find_similar_incidents",
+        "get_knowledge_document",
+        "compare_with_incident",
+    },
     "remediation": {"restart_service_simulation", "rollback_deployment_simulation",
                     "clear_queue_simulation", "scale_service_simulation"},
     "registry": {"list_available_tools"},

@@ -1,0 +1,17 @@
+{
+  "incident_id": "INC-2025-140",
+  "title": "Gateway canary rejected TLS config",
+  "date": "2025-12-09",
+  "severity": "SEV3",
+  "services": [
+    "api-gateway"
+  ],
+  "category": "failed_deploy",
+  "root_cause": "The canary of api-gateway rejected a malformed TLS setting and failed every request it served.",
+  "resolution": "Aborted the rollout; fixed the config validation in CI.",
+  "tags": [
+    "canary",
+    "config",
+    "500"
+  ]
+}

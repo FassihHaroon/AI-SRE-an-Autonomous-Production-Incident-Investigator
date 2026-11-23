@@ -212,6 +212,53 @@ def propose(root: RootCause | None, enabled: bool) -> list[Proposal]:
     return out
 
 
+def knowledge_references(evidence: list[Evidence]) -> list[dict[str, Any]]:
+    """Citations built ONLY from knowledge-base tool results present in the evidence."""
+    refs: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for ev in evidence:
+        if not ev.ok or ev.data is None or ev.server != "knowledge":
+            continue
+        if ev.tool in ("find_similar_incidents", "search_knowledge"):
+            confident = bool(ev.data.get("confident"))
+            for hit in ev.data.get("hits", []):
+                c = hit["citation"]
+                key = (c["document_id"], c["section"])
+                if key in seen or (ev.tool == "find_similar_incidents" and not confident):
+                    continue
+                seen.add(key)
+                refs.append(
+                    {
+                        "kind": "similar_incident"
+                        if ev.tool == "find_similar_incidents"
+                        else hit["doc_type"],
+                        "document_id": c["document_id"],
+                        "source": c["source"],
+                        "section": c["section"],
+                        "incident_id": c.get("incident_id"),
+                        "title": c["title"],
+                        "superseded_by": hit.get("superseded_by"),
+                        "evidence_id": ev.id,
+                    }
+                )
+        elif ev.tool == "compare_with_incident":
+            c = ev.data["incident"]
+            refs.append(
+                {
+                    "kind": "incident_comparison",
+                    "document_id": c["document_id"],
+                    "source": c["source"],
+                    "section": c["section"],
+                    "incident_id": c.get("incident_id"),
+                    "title": c["title"],
+                    "superseded_by": None,
+                    "evidence_id": ev.id,
+                    "match_ratio": ev.data.get("match_ratio"),
+                }
+            )
+    return refs
+
+
 def snapshot(evidence: Evidence | None) -> dict[str, float | None]:
     if evidence is None or not evidence.ok or evidence.data is None:
         return {}
@@ -323,6 +370,8 @@ def render_markdown(r: Report, hypotheses: list[Hypothesis]) -> str:
             f"{p.order}. {p.description} (risk {p.risk}, {flag}; action `{p.action}`, status `{p.status}`) "
             f"Expected: {p.expected_impact}"
         )
+        if p.references:
+            lines.append(f"   Procedure: {'; '.join(p.references)}")
     lines.append("")
     lines += ["## Actions taken", ""]
     lines += [
@@ -342,6 +391,26 @@ def render_markdown(r: Report, hypotheses: list[Hypothesis]) -> str:
             "|---|---|---|",
         ]
         lines += [f"| {k} | {v.before.get(k)} | {v.after.get(k)} |" for k in v.before] + [""]
+    lines += ["## References", ""]
+    if r.references:
+        for ref in r.references:
+            inc = f" · incident {ref['incident_id']}" if ref.get("incident_id") else ""
+            extra = (
+                f" · {int(ref['match_ratio'] * 100)}% of current observations also described"
+                if ref.get("match_ratio") is not None
+                else ""
+            )
+            used = (
+                f" (superseded by {ref['superseded_by']}: not used)"
+                if ref.get("superseded_by")
+                else ""
+            )
+            lines.append(
+                f"- [{ref['kind']}] `{ref['source']}` > {ref['section']}{inc}{extra}{used} [{ref['evidence_id']}]"
+            )
+    else:
+        lines.append("- No knowledge-base document was retrieved with enough confidence.")
+    lines.append("")
     if r.limitations:
         lines += ["## Limitations", ""] + [f"- {x}" for x in r.limitations] + [""]
     return "\n".join(lines)

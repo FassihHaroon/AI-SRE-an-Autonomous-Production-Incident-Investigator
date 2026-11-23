@@ -176,6 +176,7 @@ class Proposal(BaseModel):
     ] = "proposed"
     result: dict[str, Any] | None = None
     error: str | None = None
+    references: list[str] = Field(default_factory=list, description="Runbook/procedure citations")
 
 
 class Decision(BaseModel):
@@ -214,6 +215,9 @@ class Report(BaseModel):
     actions_taken: list[Proposal]
     verification: Verification | None
     limitations: list[str]
+    references: list[dict[str, Any]] = Field(
+        default_factory=list, description="Knowledge-base citations (retrieved, never invented)"
+    )
     stop_reason: StopReason | None
     rounds: int
     tool_calls: int
@@ -245,6 +249,7 @@ class InvestigationState(TypedDict, total=False):
     # remediation
     remediation_enabled: bool
     proposals: list[Proposal]
+    knowledge_refs: list[dict[str, Any]]
     decisions: list[Decision]
     baseline_metrics: dict[str, float | None]
     verification: Verification | None

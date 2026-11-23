@@ -328,6 +328,32 @@ def _incidents(
         )
 
 
+def _knowledge_incidents(
+    d: dict[str, Any],
+) -> Iterator[tuple[str, str | None, datetime | None, str, dict[str, Any]]]:
+    confident = bool(d.get("confident"))
+    for h in d.get("hits", []):
+        c = h["citation"]
+        if not c.get("incident_id"):
+            continue
+        yield (
+            "similar_incident",
+            None,
+            None,
+            f"{c['incident_id']} ({h.get('category')}): {c['title']} [{c['source']} > {c['section']}]",
+            {
+                "id": c["incident_id"],
+                "category": h.get("category"),
+                "services": h.get("services", []),
+                "score": h.get("score", 0),
+                "similarity": h.get("similarity"),
+                "confident": confident,
+                "source": c["source"],
+                "section": c["section"],
+            },
+        )
+
+
 def _compare(
     d: dict[str, Any],
 ) -> Iterator[tuple[str, str | None, datetime | None, str, dict[str, Any]]]:
@@ -370,6 +396,7 @@ EXTRACTORS: dict[str, Extractor] = {
     "get_resource_usage": _resources,
     "get_container_health": _resources,
     "search_incident_history": _incidents,
+    "find_similar_incidents": _knowledge_incidents,
     "compare_metric_windows": _compare,
 }
 

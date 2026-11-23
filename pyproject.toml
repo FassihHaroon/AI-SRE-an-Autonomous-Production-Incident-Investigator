@@ -60,7 +60,9 @@ known-first-party = ["ai_sre", "ai_sre_simulator", "ai_sre_evals"]
 # MCP tool modules embed long PromQL/SQL literals that read worse when split.
 "backend/src/ai_sre/mcp_servers/*.py" = ["E501"]
 "backend/src/ai_sre/agent/*.py" = ["E501"]
+"backend/src/ai_sre/knowledge/*.py" = ["E501"]
 "backend/tests/agent/*.py" = ["E501"]
+"backend/tests/knowledge/*.py" = ["E501"]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
@@ -138,5 +140,9 @@ sim-logs = { cmd = "docker compose -f docker-compose.sim.yml logs -f --tail 100"
 sim-reset = { cmd = "python scripts/sim_reset.py", help = "Clear all incidents, restore baseline deployments, drain queues" }
 sim-reset-hard = { cmd = "python scripts/sim_reset.py --hard", help = "Recreate the simulated environment from scratch (deletes its volumes)" }
 mcp = { cmd = "python -m ai_sre.mcp_servers serve", help = "Run the MCP servers on http://127.0.0.1:8300 (needs sim-up)" }
+kb-ingest = { cmd = "python -m ai_sre.knowledge ingest", help = "Ingest knowledge/ into PostgreSQL (idempotent; --prune to delete removed files)" }
+kb-eval = { cmd = "python -m ai_sre.knowledge evaluate --output docs/eval-results/retrieval.md", help = "Retrieval metrics (Recall@K, Precision@K, MRR, nDCG)" }
+test-agent-e2e = { cmd = "pytest -m sim backend/tests/agent -v", help = "Investigation graph end to end against the simulated environment (~15 min)" }
+investigate = { cmd = "python -m ai_sre.agent investigate", help = "Run an investigation: uv run poe investigate \"<question>\"" }
 test-mcp = { cmd = "pytest -m sim backend/tests/mcp -v", help = "Protocol-level MCP tests against the running simulated environment" }
 test-sim = { cmd = "pytest -m sim simulator/tests/live -v", help = "Live tests: trigger every scenario/fault, assert metrics + logs (needs sim-up; ~20 min)" }

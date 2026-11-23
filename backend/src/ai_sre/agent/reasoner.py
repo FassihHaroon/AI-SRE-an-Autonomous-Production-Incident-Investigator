@@ -72,7 +72,9 @@ TOOL_CATALOG: dict[str, str] = {
     "infrastructure.get_dependency_status": "health of orders-service, postgres, redis, payments, queue",
     "infrastructure.get_resource_usage": "CPU and memory growth",
     "infrastructure.get_container_health": "memory vs limit, restarts",
-    "incidents.search_incident_history": "similar past incidents",
+    "incidents.search_incident_history": "similar past incidents (keyword)",
+    "knowledge.find_similar_incidents": "similar past incidents (hybrid retrieval, with citations)",
+    "knowledge.search_knowledge": "runbooks, procedures, service/architecture docs (with citations)",
 }
 
 
@@ -181,11 +183,15 @@ def triage_calls(scope: IncidentScope) -> list[PlannedCall]:
             priority=2,
         ),
         PlannedCall(
-            server="incidents",
-            tool="search_incident_history",
-            arguments={"query": scope.question[:280], "top_k": 3},
-            purpose="Similar past incidents",
-            priority=3,
+            server="knowledge",
+            tool="find_similar_incidents",
+            arguments={
+                "description": scope.question[:780],
+                "services": scope.services[:5],
+                "top_k": 3,
+            },
+            purpose="Similar past incidents (knowledge base)",
+            priority=2,
         ),
         *[
             PlannedCall(

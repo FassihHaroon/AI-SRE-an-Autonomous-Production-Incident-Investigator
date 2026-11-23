@@ -61,7 +61,7 @@ def test_first_plan_is_a_broad_triage() -> None:
         ("deployments", "list_recent_deployments"),
         ("logs", "aggregate_errors"),
         ("infrastructure", "get_dependency_status"),
-        ("incidents", "search_incident_history"),
+        ("knowledge", "find_similar_incidents"),
         ("database", "get_connection_pool_status"),
     } <= tools
 
@@ -204,7 +204,7 @@ async def test_tool_budget_is_enforced(gateway_factory: GatewayFactory) -> None:
     )
     assert result.report is not None
     investigative = [c for c in gw.calls if c[0] != "remediation"]
-    assert len(investigative) <= 4 + 1  # + verification baseline
+    assert len(investigative) <= 4 + 3  # + baseline metrics and knowledge lookups after the budget
     assert result.report.stop_reason == "tool_budget"
 
 
@@ -386,3 +386,52 @@ async def test_llm_reasoner_falls_back_to_rules_on_errors() -> None:
     assert scope == parse_scope(Q)
     _, calls = await reasoner.plan(scope, [_h(trigger_ref="d-408")], 2, set())
     assert calls, "rule-based plan used when the model output is invalid"
+
+
+# --------------------------------------------------------------------------- knowledge citations
+async def test_report_cites_only_retrieved_knowledge(gateway_factory: GatewayFactory) -> None:
+    gw = gateway_factory(remediation="disabled")
+    _, result = await start(gw)
+    report = result.report
+    assert report is not None
+    retrieved = {
+        "incidents/INC-2026-031.md",
+        "runbooks/rb-db-pool-exhaustion.md",
+        "runbooks/rb-db-pool-exhaustion-2024.md",
+    }
+    assert report.references, "knowledge references are reported"
+    assert {r["source"] for r in report.references} <= retrieved, (
+        "never cite a document that was not retrieved"
+    )
+    assert all(r["evidence_id"].startswith("ev-") for r in report.references)
+    incident = next(r for r in report.references if r["kind"] == "similar_incident")
+    assert (incident["incident_id"], incident["section"]) == (
+        "INC-2026-031",
+        "INC-2026-031 > What happened",
+    )
+    assert "## References" in report.markdown
+    assert "INC-2026-031" in report.markdown
+
+
+async def test_superseded_runbook_is_not_used_for_remediation(
+    gateway_factory: GatewayFactory,
+) -> None:
+    gw = gateway_factory(remediation="disabled")
+    _, result = await start(gw)
+    assert result.report is not None
+    refs = result.report.recommendations[0].references
+    assert refs
+    assert all("rb-db-pool-exhaustion-2024" not in r for r in refs)
+    assert "superseded by rb-db-pool-exhaustion: not used" in result.report.markdown
+
+
+async def test_unconfident_similar_incidents_are_not_cited(gateway_factory: GatewayFactory) -> None:
+    gw = gateway_factory(remediation="disabled")
+    original = gw.data["find_similar_incidents"]
+    gw.data["find_similar_incidents"] = lambda a: {**original(a), "confident": False}
+    _, result = await start(gw)
+    assert result.report is not None
+    assert not [r for r in result.report.references if r["kind"] == "similar_incident"]
+    assert result.report.root_cause is not None
+    hyps_hist = result.report.root_cause.explanation
+    assert "Similar past incident" not in hyps_hist

@@ -38,7 +38,13 @@ from ai_sre.agent.models import (
     TimelineEvent,
 )
 from ai_sre.agent.reasoner import APP_SERVICES, Reasoner
-from ai_sre.agent.remediation import propose, render_markdown, snapshot, verify
+from ai_sre.agent.remediation import (
+    knowledge_references,
+    propose,
+    render_markdown,
+    snapshot,
+    verify,
+)
 
 logger = structlog.get_logger("agent.graph")
 
@@ -310,6 +316,35 @@ def build_graph(deps: Deps) -> StateGraph[InvestigationState]:
             )
             update["evidence"] = [ev]
             update["baseline_metrics"] = snapshot(ev)
+        # Knowledge: remediation procedures for this cause, and a comparison with the most similar
+        # past incident. Citations come only from these results.
+        gw.resume_numbering(len(state.get("evidence", [])) + len(update.get("evidence", [])))
+        kb_args: dict[str, Any] = {
+            "query": f"{top.title}. {top.category.replace('_', ' ')} {top.component} remediation"[
+                :480
+            ],
+            "doc_types": ["runbook", "procedure"],
+            "top_k": 3,
+        }
+        if top.component in APP_SERVICES:
+            kb_args["services"] = [top.component]
+        kb = [await gw.call("knowledge", "search_knowledge", kb_args, state["round"])]
+        if top.historical_match:
+            observations = [findings[i].detail[:280] for i in top.supporting[:8] if i in findings]
+            kb.append(
+                await gw.call(
+                    "knowledge",
+                    "compare_with_incident",
+                    {
+                        "incident_id": top.historical_match,
+                        "observations": observations or [top.title],
+                        "services": [top.component],
+                    },
+                    state["round"],
+                )
+            )
+        update["evidence"] = [*update.get("evidence", []), *kb]
+        update["knowledge_refs"] = knowledge_references([*state.get("evidence", []), *kb])
         return update
 
     # ------------------------------------------------------------------ 9. remediation proposal
@@ -317,6 +352,13 @@ def build_graph(deps: Deps) -> StateGraph[InvestigationState]:
     async def remediation_proposal(state: InvestigationState) -> dict[str, Any]:
         enabled = bool(state.get("remediation_enabled"))
         proposals = propose(state.get("root_cause"), enabled)
+        procedures = [
+            f"{ref['document_id']} > {ref['section']} ({ref['source']})"
+            for ref in state.get("knowledge_refs", [])
+            if ref["kind"] in ("runbook", "procedure") and not ref.get("superseded_by")
+        ]
+        if proposals and procedures:
+            proposals[0].references = procedures[:3]
         if state.get("stop_reason") in ("cancelled", "error"):
             return {"proposals": proposals}
         limitations = []
@@ -492,6 +534,7 @@ def build_graph(deps: Deps) -> StateGraph[InvestigationState]:
             actions_taken=actions,
             verification=state.get("verification"),
             limitations=limitations,
+            references=state.get("knowledge_refs") or knowledge_references(evidence),
             stop_reason=state.get("stop_reason"),
             rounds=state.get("round", 0),
             tool_calls=len(evidence),

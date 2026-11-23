@@ -146,6 +146,15 @@ Named signals: `request_rate`, `error_rate`, `latency_p50/p95/p99`, `cpu`, `memo
 | `clear_queue_simulation` | `queue`, `reason`, `approval_token?` | Deletes all jobs in the queue | **No** (jobs are lost) |
 | `scale_service_simulation` | `service`, `replicas≤10`, `reason`, `approval_token?` | Desired replicas; fulfilment-worker consumers = 2 × replicas | Yes |
 
+### knowledge (PostgreSQL + pgvector, see [knowledge.md](knowledge.md))
+
+| Tool | Arguments | Returns |
+|------|-----------|---------|
+| `search_knowledge` | `query`, `doc_types?`, `services?`, `top_k≤10`, `mode` (hybrid/semantic/keyword) | Hits with citation (document id, source file, section, incident id), snippet, scores, `superseded_by`, `confident` |
+| `find_similar_incidents` | `description`, `services?` (boost), `top_k≤10` | Similar past incidents with citation, category, severity; `confident=false` when none is clearly similar |
+| `get_knowledge_document` | `document_id`, `section?` | Sections of one document with its citation |
+| `compare_with_incident` | `incident_id`, `observations[≤15]`, `services?` | Which observations the past incident also describes, shared services, match ratio |
+
 ### registry
 
 `list_available_tools(server_name?, include_schemas?)`: every server with path, read-only flag, auth

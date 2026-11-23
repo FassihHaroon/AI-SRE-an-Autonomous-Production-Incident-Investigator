@@ -247,7 +247,19 @@ mode (Phase 4 of the original plan is now the evaluation harness).
 
 ---
 
-### Phase 6 — Knowledge and RAG (5 days)
+### Phase 6 — Knowledge and RAG (5 days) — ✅ delivered early as Phase 5 (2026-11-23)
+
+**As delivered** ([knowledge.md](knowledge.md)): 26-document synthetic corpus (incidents in Markdown
+and JSON, runbooks incl. a superseded one, procedures, service and architecture docs, a text guide,
+a PDF); ingestion pipeline with metadata, heading-aware chunking, local bge-small embeddings,
+pgvector + full-text storage, content-hash idempotency (0 writes on re-run), updates, duplicate
+detection, prune/delete; hybrid retrieval (RRF) with metadata filters, metadata rerank and
+two-signal abstention; MCP `knowledge` server (4 tools); agent integration with citations;
+evaluation set of 32 queries (hybrid+rerank: Recall@5 1.0, MRR 0.98, nDCG@5 0.97, conflicts 1.0,
+abstention 1.0). Not done from the original plan: ~40 labelled queries (32 delivered) and a RAG
+ablation on investigation accuracy (needs the evaluation harness).
+
+**Original plan:**
 
 **Scope**
 - Corpus: about 30 synthetic postmortems + about 15 runbooks (Markdown, front-matter), some

@@ -106,7 +106,7 @@ def test_http_auth_scopes(base_url: str) -> None:
     assert httpx.get(f"{base_url}/approvals", headers=read).status_code == 403
     registry = httpx.get(f"{base_url}/registry", headers=read)
     assert registry.status_code == 200
-    assert registry.json()["tool_count"] == 27
+    assert registry.json()["tool_count"] == 31
 
 
 def test_tools_listed_over_http_on_every_server(base_url: str) -> None:
@@ -120,6 +120,7 @@ def test_tools_listed_over_http_on_every_server(base_url: str) -> None:
             "database",
             "infrastructure",
             "incidents",
+            "knowledge",
             "remediation",
         ):
             token = REMEDIATE if server == "remediation" else READ
@@ -132,7 +133,7 @@ def test_tools_listed_over_http_on_every_server(base_url: str) -> None:
         return out
 
     listed = run(go())
-    assert sum(len(v) for v in listed.values()) == 27
+    assert sum(len(v) for v in listed.values()) == 31
     assert "rollback_deployment_simulation" in listed["remediation"]
 
 

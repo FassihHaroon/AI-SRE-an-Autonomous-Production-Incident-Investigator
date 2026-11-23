@@ -168,6 +168,77 @@ def scenario_a() -> dict[str, Callable[[dict[str, Any]], dict[str, Any]]]:
                 }
             ],
         },
+        "find_similar_incidents": lambda a: {
+            "summary": "1 similar incident",
+            "confident": True,
+            "hits": [
+                {
+                    "citation": {
+                        "document_id": "INC-2026-031",
+                        "source": "incidents/INC-2026-031.md",
+                        "section": "INC-2026-031 > What happened",
+                        "incident_id": "INC-2026-031",
+                        "title": "Order history N+1 query",
+                    },
+                    "doc_type": "incident",
+                    "category": "bad_deploy",
+                    "services": ["orders-service"],
+                    "score": 0.03,
+                    "similarity": 0.8,
+                    "superseded_by": None,
+                }
+            ],
+        },
+        "search_knowledge": lambda a: {
+            "summary": "2 runbooks",
+            "confident": True,
+            "hits": [
+                {
+                    "citation": {
+                        "document_id": "rb-db-pool-exhaustion",
+                        "source": "runbooks/rb-db-pool-exhaustion.md",
+                        "section": "Runbook: database connection pool exhaustion > Remediation",
+                        "incident_id": None,
+                        "title": "Runbook: database connection pool exhaustion",
+                    },
+                    "doc_type": "runbook",
+                    "category": None,
+                    "services": ["orders-service"],
+                    "score": 0.03,
+                    "similarity": 0.8,
+                    "superseded_by": None,
+                },
+                {
+                    "citation": {
+                        "document_id": "rb-db-pool-exhaustion-2024",
+                        "source": "runbooks/rb-db-pool-exhaustion-2024.md",
+                        "section": "Runbook (2024): database connection pool exhaustion > Remediation",
+                        "incident_id": None,
+                        "title": "Runbook (2024)",
+                    },
+                    "doc_type": "runbook",
+                    "category": None,
+                    "services": ["orders-service"],
+                    "score": 0.01,
+                    "similarity": 0.7,
+                    "superseded_by": "rb-db-pool-exhaustion",
+                },
+            ],
+        },
+        "compare_with_incident": lambda a: {
+            "summary": "3/4 observations",
+            "incident": {
+                "document_id": "INC-2026-031",
+                "source": "incidents/INC-2026-031.md",
+                "section": "(whole document)",
+                "incident_id": "INC-2026-031",
+                "title": "N+1",
+            },
+            "category": "bad_deploy",
+            "shared_services": ["orders-service"],
+            "matches": [],
+            "match_ratio": 0.75,
+        },
         "get_service_metrics": lambda a: {
             "summary": a["service"],
             "service": a["service"],

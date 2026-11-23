@@ -1,0 +1,10 @@
+Latency triage guide (shop)
+services: api-gateway, orders-service
+type: troubleshooting
+
+1. Check which endpoints are slow (http_server_request_duration_seconds by route).
+2. If only routes that call orders-service are slow, look at orders-service first.
+3. Compare DB query latency by query name: one slow query points to a query/plan problem;
+   all queries slower by the same amount points to the network or the database host.
+4. Check the connection pool: saturation turns slowness into 503 errors.
+5. Correlate the onset with deployments; compare signals before and after each deploy.

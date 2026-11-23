@@ -26,6 +26,9 @@ COPY knowledge knowledge
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --package ai-sre-backend
 
+# 3) Bake the local embedding model into the image (knowledge base works offline, no API).
+RUN /app/.venv/bin/python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/app/.cache/fastembed')"
+
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --no-create-home app
 USER app

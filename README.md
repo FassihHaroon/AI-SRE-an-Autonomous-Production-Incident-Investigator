@@ -10,7 +10,12 @@ Everything runs locally with Docker Compose against a **deterministic simulated 
 environment**. The only external dependency is an LLM API (the Gemini free tier during
 development).
 
-> **Status: Phase 4 complete.** The **LangGraph investigation engine** investigates incidents
+> **Status: Phase 5 complete.** An **incident knowledge base** (past incidents, runbooks,
+> procedures, service/architecture docs; Markdown, text, JSON, PDF) is ingested into PostgreSQL +
+> pgvector with local embeddings and served through hybrid retrieval (semantic + keyword + metadata
+> rerank) as MCP tools. Reports cite source, section and incident id ([docs/knowledge.md](docs/knowledge.md)).
+>
+> **Phase 4:** The **LangGraph investigation engine** investigates incidents
 > end to end against the simulated environment: intake → plan → tools → evidence → hypotheses →
 > (re-plan) → root cause with computed confidence → remediation proposal → **human approval
 > (interrupt)** → execution → verification → report, checkpointed in PostgreSQL
@@ -31,6 +36,7 @@ development).
 
 | Document | What's in it |
 |----------|--------------|
+| [docs/knowledge.md](docs/knowledge.md) | Knowledge base: ingestion pipeline, retrieval, design decisions, evaluation |
 | [docs/agent.md](docs/agent.md) | Investigation engine: workflow graph, nodes, stop conditions, confidence, approval, CLI |
 | [docs/mcp.md](docs/mcp.md) | MCP tool servers: run/configure, tool contract, every tool, remediation safety, sample calls |
 | [docs/simulator.md](docs/simulator.md) | The simulated production environment: topology, telemetry, fault injection, scenarios, reset |
@@ -194,6 +200,7 @@ dependencies), so they work the same on Windows, macOS and Linux:
 | `uv run poe sim-reset` / `sim-reset-hard` | Reset the simulated environment to baseline / recreate it from scratch |
 | `uv run poe test-sim` | Live tests against the running simulated environment (~20 min) |
 | `uv run simctl …` | Trigger, inspect and clear simulated incidents |
+| `uv run poe kb-ingest` / `kb-eval` | Ingest `knowledge/` into PostgreSQL / run the retrieval evaluation |
 | `uv run python -m ai_sre.agent …` | investigate / approve / show / cancel / graph |
 | `uv run poe test-agent-e2e` | Investigation graph end to end against the simulated environment (~6 min) |
 | `uv run poe mcp` / `test-mcp` | Run the MCP servers / protocol-level MCP tests against the simulated environment |

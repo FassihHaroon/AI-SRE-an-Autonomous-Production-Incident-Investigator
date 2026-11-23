@@ -384,6 +384,7 @@ def generate(
                     or h.component in ("redis", "postgres", "payments-provider")
                 )
                 and f.values.get("score", 0) > 0
+                and f.values.get("confident", True)
             ),
             None,
         )

@@ -134,6 +134,15 @@ reasoner still stops.
    (`agent`, `ai-sre`, `mcp`), and treats missing decisions as rejections.
 5. Remediation must be enabled in configuration, or nothing is even requested.
 
+### Knowledge (Phase 5)
+
+Triage includes `knowledge.find_similar_incidents`; the root-cause node retrieves runbooks and
+procedures (`knowledge.search_knowledge`) and compares the evidence with the matching past incident
+(`knowledge.compare_with_incident`). Only *confident* matches count as historical matches. The
+report's **References** section is built only from these retrieved results (source file, section,
+incident id, evidence id), and superseded runbooks are listed as not used. See
+[knowledge.md](knowledge.md).
+
 ## 3. Confidence
 
 Computed in code ([hypotheses.py](../backend/src/ai_sre/agent/hypotheses.py)), rubric v1 from

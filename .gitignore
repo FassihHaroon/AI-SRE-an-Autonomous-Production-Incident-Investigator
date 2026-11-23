@@ -32,3 +32,6 @@ evals/reports/
 .DS_Store
 Thumbs.db
 *.log
+
+# Local caches (embedding models)
+.cache/

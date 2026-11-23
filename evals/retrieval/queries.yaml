@@ -1,0 +1,165 @@
+# Retrieval evaluation set for the knowledge base (knowledge/).
+# relevant: {document_id: grade}  2 = the answer, 1 = useful context.
+# kind: similar_incident | runbook | procedure | architecture | service_filter | conflict | no_match
+# filters / prefer_services are passed to the retriever as the agent would.
+# must_rank_above: [[newer_doc, superseded_doc]] pairs for conflicting documents.
+
+- id: q01
+  kind: similar_incident
+  query: "orders history endpoint slow and connection pool timeouts right after an orders-service deploy"
+  filters: {doc_types: [incident]}
+  relevant: {INC-2026-031: 2, INC-2025-112: 1, INC-2026-063: 1}
+- id: q02
+  kind: similar_incident
+  query: "carts return 503 and paid orders were not queued because the cache was unreachable"
+  filters: {doc_types: [incident]}
+  relevant: {INC-2026-044: 2}
+- id: q03
+  kind: similar_incident
+  query: "fulfilment queue keeps growing, worker jobs time out calling the shipping label service after a release"
+  filters: {doc_types: [incident]}
+  relevant: {INC-2026-052: 2, INC-2026-019: 1}
+- id: q04
+  kind: similar_incident
+  query: "order placement fails with 502, payment provider returns 503 errors, no internal change"
+  filters: {doc_types: [incident]}
+  relevant: {INC-2026-058: 2}
+- id: q05
+  kind: similar_incident
+  query: "sessions idle in transaction pile up and the pool is exhausted although queries are fast"
+  filters: {doc_types: [incident]}
+  relevant: {INC-2026-063: 2, INC-2026-031: 1}
+- id: q06
+  kind: similar_incident
+  query: "gateway memory grows linearly with traffic and the container is OOM killed repeatedly"
+  filters: {doc_types: [incident]}
+  relevant: {INC-2026-071: 2}
+- id: q07
+  kind: similar_incident
+  query: "a quarter of gateway requests fail with a config error after a rollout marked failed"
+  filters: {doc_types: [incident]}
+  relevant: {INC-2026-077: 2, INC-2025-140: 1}
+- id: q08
+  kind: similar_incident
+  query: "every query on every service is about 100 ms slower but the database is idle"
+  filters: {doc_types: [incident]}
+  relevant: {INC-2026-085: 2}
+- id: q09
+  kind: similar_incident
+  query: "order lookups became sequential scans after an index was dropped by a migration"
+  filters: {doc_types: [incident]}
+  relevant: {INC-2025-112: 2, INC-2026-031: 1}
+- id: q10
+  kind: similar_incident
+  query: "traffic tripled and the worker could not keep up although jobs succeeded"
+  filters: {doc_types: [incident]}
+  relevant: {INC-2026-019: 2, INC-2026-052: 1}
+
+- id: q11
+  kind: runbook
+  query: "how to remediate database connection pool exhaustion"
+  filters: {doc_types: [runbook]}
+  relevant: {rb-db-pool-exhaustion: 2}
+- id: q12
+  kind: runbook
+  query: "redis is down what should I do"
+  filters: {doc_types: [runbook]}
+  relevant: {rb-redis-outage: 2}
+- id: q13
+  kind: runbook
+  query: "the fulfilment backlog keeps growing, should I clear the queue or scale the worker"
+  filters: {doc_types: [runbook]}
+  relevant: {rb-worker-backlog: 2}
+- id: q14
+  kind: runbook
+  query: "payments provider errors on checkout"
+  filters: {doc_types: [runbook]}
+  relevant: {rb-payments-provider: 2}
+- id: q15
+  kind: runbook
+  query: "memory leak, restart keeps fixing it only temporarily"
+  filters: {doc_types: [runbook]}
+  relevant: {rb-memory-leak: 2}
+- id: q16
+  kind: runbook
+  query: "all database queries slower by the same amount, network latency"
+  relevant: {rb-db-network-latency: 2, INC-2026-085: 1, troubleshooting-latency-triage: 1}
+
+- id: q17
+  kind: procedure
+  query: "steps to roll back a bad deployment and the risks"
+  relevant: {rb-rollback-procedure: 2, proc-deploy: 1}
+- id: q18
+  kind: procedure
+  query: "canary analysis failed but canaries still serve traffic, how to abort the rollout"
+  relevant: {proc-deploy: 2, INC-2026-077: 1}
+- id: q19
+  kind: procedure
+  query: "are deployments allowed during an active SEV2"
+  relevant: {proc-deploy: 2}
+
+- id: q20
+  kind: architecture
+  query: "what does orders-service depend on and how big is its connection pool"
+  relevant: {svc-orders-service: 2, arch-shop: 1}
+- id: q21
+  kind: architecture
+  query: "request path for placing an order through the shop"
+  relevant: {arch-shop: 2, svc-orders-service: 1}
+- id: q22
+  kind: architecture
+  query: "what is an idle in transaction session and how do I find connection leaks in postgres"
+  relevant: {operations-postgres-operations-guide: 2, rb-db-pool-exhaustion: 1, INC-2026-063: 1}
+- id: q23
+  kind: architecture
+  query: "how to triage high latency on endpoints that call orders-service"
+  relevant: {troubleshooting-latency-triage: 2, svc-orders-service: 1}
+
+# Service metadata matters: the same question means different documents per service.
+- id: q24
+  kind: service_filter
+  query: "responsibilities and dependencies"
+  filters: {services: [fulfilment-worker], doc_types: [service_architecture]}
+  relevant: {svc-fulfilment-worker: 2}
+- id: q25
+  kind: service_filter
+  query: "responsibilities and dependencies"
+  filters: {services: [api-gateway], doc_types: [service_architecture]}
+  relevant: {svc-api-gateway: 2}
+- id: q26
+  kind: service_filter
+  query: "past incidents with a bad deploy"
+  filters: {services: [api-gateway], doc_types: [incident]}
+  relevant: {INC-2026-071: 2, INC-2026-077: 2, INC-2025-140: 1}
+
+# Conflicting documents: the 2024 runbook (restart, double the pool) is superseded.
+- id: q27
+  kind: conflict
+  query: "orders-service pool exhausted, restart or double the pool size?"
+  filters: {doc_types: [runbook]}
+  relevant: {rb-db-pool-exhaustion: 2}
+  must_rank_above: [[rb-db-pool-exhaustion, rb-db-pool-exhaustion-2024]]
+- id: q28
+  kind: conflict
+  query: "connection pool exhaustion remediation orders-service"
+  filters: {doc_types: [runbook]}
+  relevant: {rb-db-pool-exhaustion: 2}
+  must_rank_above: [[rb-db-pool-exhaustion, rb-db-pool-exhaustion-2024]]
+
+# Nothing relevant exists: the retriever must not claim a confident match.
+- id: q29
+  kind: no_match
+  query: "TLS certificate expired on the corporate mail server"
+  relevant: {}
+- id: q30
+  kind: no_match
+  query: "kafka consumer lag growing in the analytics cluster"
+  relevant: {}
+- id: q31
+  kind: no_match
+  query: "kubernetes node disk pressure evicting pods"
+  relevant: {}
+- id: q32
+  kind: no_match
+  query: "elasticsearch shard allocation failed after cluster upgrade"
+  relevant: {}

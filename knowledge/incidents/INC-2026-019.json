@@ -1,0 +1,18 @@
+{
+  "incident_id": "INC-2026-019",
+  "title": "Black Friday traffic surge exhausted worker capacity",
+  "date": "2026-01-28",
+  "severity": "SEV2",
+  "services": [
+    "fulfilment-worker"
+  ],
+  "category": "capacity",
+  "root_cause": "Order volume tripled; jobs succeeded but the queue grew because there were too few consumers.",
+  "resolution": "Scaled fulfilment-worker to 3 replicas; backlog drained in 20 minutes.",
+  "tags": [
+    "queue",
+    "backlog",
+    "scaling",
+    "traffic"
+  ]
+}

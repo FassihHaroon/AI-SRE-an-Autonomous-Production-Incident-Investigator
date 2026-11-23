@@ -39,6 +39,8 @@ class McpSettings(BaseSettings):
         "postgresql://sre_readonly:sre-readonly-sim@127.0.0.1:55432/shop"
     )
     incidents_dir: Path = REPO_ROOT / "knowledge" / "incidents"
+    # Knowledge base (platform database). Default: AI_SRE_DATABASE_URL.
+    knowledge_dsn: SecretStr | None = None
 
     # --- auth (bearer tokens). Read tools: read or remediation token. Remediation tools:
     # remediation token only. Approvals: admin token (held by humans, never by the agent).
