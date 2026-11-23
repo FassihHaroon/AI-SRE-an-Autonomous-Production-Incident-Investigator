@@ -190,6 +190,8 @@ class WindowStats(BaseModel):
 
 
 class CompareResult(ToolResult):
+    service: str
+    signal: str | None
     promql: str
     current: WindowStats
     baseline: WindowStats
@@ -249,7 +251,16 @@ def _anomaly(
     threshold = max(z_threshold * std, abs(mean) * 0.5, floor)
     if abs(recent_avg - mean) <= threshold:
         return None
-    onset = next((ts for ts, v in recent if abs(v - mean) > threshold), None)
+    # Onset of the *current* episode: start of the last contiguous run of anomalous points.
+    # An earlier, already-resolved episode in the window is not the onset.
+    flags = [abs(v - mean) > threshold for _, v in recent]
+    onset = None
+    if any(flags):
+        last = max(i for i, f in enumerate(flags) if f)
+        start = last
+        while start > 0 and flags[start - 1]:
+            start -= 1
+        onset = recent[start][0]
     return Anomaly(
         service=service,
         signal=signal,
@@ -342,19 +353,35 @@ def build_metrics_server(backends: Backends, runtime: ToolRuntime) -> MCPServer:
         ] = None,
         window_minutes: Annotated[int, Field(ge=1, le=240)] = 10,
         baseline_offset_minutes: Annotated[
-            int, Field(ge=5, le=10080, description="Baseline = same-length window this long ago")
+            int, Field(ge=1, le=10080, description="Baseline = same-length window this long ago")
         ] = 60,
+        split_at: Annotated[
+            datetime | None,
+            Field(
+                description="Compare after vs before this moment (e.g. a deployment); overrides the windows"
+            ),
+        ] = None,
     ) -> CompareResult:
         """Compare a signal in the most recent window with an earlier baseline window of the
-        same length (e.g. now vs one hour ago)."""
+        same length (e.g. now vs one hour ago), or after vs before `split_at` (e.g. a deploy)."""
         if not (signal or promql):
             raise ToolFailure("invalid_argument", "give either `signal` or `promql`")
         expr = promql or signal_query(signal or "", service)
         end = utcnow()
-        start = end - timedelta(minutes=window_minutes)
-        b_end = end - timedelta(minutes=baseline_offset_minutes)
-        b_start = b_end - timedelta(minutes=window_minutes)
-        step = step_for(start, end, 30)
+        if split_at is not None:
+            split = split_at if split_at.tzinfo else split_at.replace(tzinfo=UTC)
+            if not end - timedelta(days=7) < split < end:
+                raise ToolFailure(
+                    "invalid_argument", "split_at must be within the last 7 days and in the past"
+                )
+            length = max(end - split, timedelta(minutes=2))
+            start, b_end = split, split
+            b_start = split - length
+        else:
+            start = end - timedelta(minutes=window_minutes)
+            b_end = end - timedelta(minutes=baseline_offset_minutes)
+            b_start = b_end - timedelta(minutes=window_minutes)
+        step = step_for(b_start, end, 40)
         current = await prom.range(expr, start, end, step)
         baseline = await prom.range(expr, b_start, b_end, step)
         cur = stats([v for _, v in _values(current[0])] if current else [])
@@ -368,6 +395,8 @@ def build_metrics_server(backends: Backends, runtime: ToolRuntime) -> MCPServer:
             direction = "flat" if abs(delta) <= tolerance else ("up" if delta > 0 else "down")
         return CompareResult(
             summary=f"{signal or 'promql'} on {service}: baseline avg {base.avg} -> current avg {cur.avg} ({direction})",
+            service=service,
+            signal=signal,
             promql=expr,
             current=WindowStats(start=iso(start), end=iso(end), stats=cur),
             baseline=WindowStats(start=iso(b_start), end=iso(b_end), stats=base),
@@ -389,7 +418,7 @@ def build_metrics_server(backends: Backends, runtime: ToolRuntime) -> MCPServer:
         end = utcnow()
         recent_start = end - timedelta(minutes=since_minutes)
         base_start = recent_start - timedelta(minutes=baseline_minutes)
-        step = step_for(base_start, end, 90)
+        step = step_for(base_start, end, 120)
         anomalies, checked = [], 0
         for service in services or APP_SERVICES:
             for name in ANOMALY_SIGNALS:

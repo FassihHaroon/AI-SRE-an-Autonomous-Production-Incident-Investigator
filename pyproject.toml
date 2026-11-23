@@ -59,6 +59,8 @@ known-first-party = ["ai_sre", "ai_sre_simulator", "ai_sre_evals"]
 "simulator/src/ai_sre_simulator/shop/seed.py" = ["S608"]
 # MCP tool modules embed long PromQL/SQL literals that read worse when split.
 "backend/src/ai_sre/mcp_servers/*.py" = ["E501"]
+"backend/src/ai_sre/agent/*.py" = ["E501"]
+"backend/tests/agent/*.py" = ["E501"]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]

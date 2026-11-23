@@ -149,7 +149,19 @@ the exact parameters. Offline protocol tests (in-memory transport) and live prot
 for every tool. The result cap is 16 KB (not 4 KB) because results are structured JSON with
 summaries rather than raw rows.
 
-The **agent core** part of this phase is delivered as Phase 4 (LangGraph engine), as requested.
+The **agent core** part of this phase was delivered as Phase 4 (LangGraph engine).
+
+**Phase 4 as delivered (2026-11-23)**, the LangGraph investigation engine ([agent.md](agent.md)):
+13 explicit nodes (intake, planning, tool selection, tool execution, evidence analysis, hypothesis
+evaluation, replanning, root cause, remediation proposal, approval, remediation execution,
+verification, report) with conditional edges; typed state; `AsyncPostgresSaver` checkpoints;
+retries, per-node timeouts, error recovery; limits on rounds, tool calls and time; cancellation;
+`interrupt()` for human approval and resume from another process. Confidence is the deterministic
+rubric v1. Reasoning is rule-based by default (no API key configured yet) with an LLM reasoner
+(structured output, allow-listed plans, fallback). Deterministic graph tests plus end-to-end runs
+against scenarios A (with approval → rollback → verification), B, C and D. Not yet: evidence rows in
+Postgres (they live in the checkpointed state, bounded), the API/worker (Phase 7), cassette replay
+mode (Phase 4 of the original plan is now the evaluation harness).
 
 
 **Scope**

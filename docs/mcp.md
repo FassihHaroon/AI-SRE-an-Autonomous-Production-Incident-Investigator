@@ -96,8 +96,8 @@ Every tool:
 |------|-----------|---------|
 | `get_metric_timeseries` | `promql`, `since_minutes`, `max_points≤120`, `max_series≤20` | Series with stats (min/max/avg/last) and downsampled points |
 | `get_service_metrics` | `service` | Golden signals now: rate, error ratio, p50/p95/p99, CPU, memory, pool utilisation/waiters, DB p95, Redis/upstream errors, queue, version |
-| `compare_metric_windows` | `service`, `signal` or `promql`, `window_minutes`, `baseline_offset_minutes` | Current vs baseline window stats, change %, direction |
-| `detect_metric_anomalies` | `services?`, `since_minutes=10`, `baseline_minutes=30`, `z_threshold=3` | Signals departing from baseline (z-score, change %, absolute floors) with onset time |
+| `compare_metric_windows` | `service`, `signal` or `promql`, `window_minutes`, `baseline_offset_minutes`, or `split_at` (after vs immediately before a moment, e.g. a deployment) | Current vs baseline window stats, change %, direction |
+| `detect_metric_anomalies` | `services?`, `since_minutes=10`, `baseline_minutes=30`, `z_threshold=3` | Signals departing from a robust baseline (median/MAD, absolute floors) with the onset of the **current** episode (start of the last contiguous anomalous run) |
 
 Named signals: `request_rate`, `error_rate`, `latency_p50/p95/p99`, `cpu`, `memory_bytes`,
 `db_pool_utilization`, `db_pool_pending`, `db_query_p95`, `redis_error_rate`,

@@ -141,6 +141,20 @@ async def test_slow_backend_hits_the_tool_timeout(entries_factory: Entries) -> N
     assert error_of(result)["code"] == "timeout"
 
 
+async def test_compare_split_at_must_be_in_the_past(entries_factory: Entries) -> None:
+    entries = entries_factory()
+    async with Client(entries["metrics"].server) as client:
+        result = await client.call_tool(
+            "compare_metric_windows",
+            {
+                "service": "orders-service",
+                "signal": "error_rate",
+                "split_at": "2099-01-01T00:00:00Z",
+            },
+        )
+    assert error_of(result)["code"] == "invalid_argument"
+
+
 async def test_signal_not_applicable_gives_hint(entries_factory: Entries) -> None:
     entries = entries_factory()
     async with Client(entries["metrics"].server) as client:

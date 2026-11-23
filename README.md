@@ -10,7 +10,13 @@ Everything runs locally with Docker Compose against a **deterministic simulated 
 environment**. The only external dependency is an LLM API (the Gemini free tier during
 development).
 
-> **Status: Phase 3 of 11 complete.** Phase 3 adds the **MCP tool layer**: 8 MCP servers
+> **Status: Phase 4 complete.** The **LangGraph investigation engine** investigates incidents
+> end to end against the simulated environment: intake → plan → tools → evidence → hypotheses →
+> (re-plan) → root cause with computed confidence → remediation proposal → **human approval
+> (interrupt)** → execution → verification → report, checkpointed in PostgreSQL
+> ([docs/agent.md](docs/agent.md)).
+>
+> **Phase 3** added the **MCP tool layer**: 8 MCP servers
 > (27 tools: logs, metrics, deployments, database, infrastructure, incidents, approval-gated
 > remediation, registry) over Streamable HTTP ([docs/mcp.md](docs/mcp.md)).
 >
@@ -25,6 +31,7 @@ development).
 
 | Document | What's in it |
 |----------|--------------|
+| [docs/agent.md](docs/agent.md) | Investigation engine: workflow graph, nodes, stop conditions, confidence, approval, CLI |
 | [docs/mcp.md](docs/mcp.md) | MCP tool servers: run/configure, tool contract, every tool, remediation safety, sample calls |
 | [docs/simulator.md](docs/simulator.md) | The simulated production environment: topology, telemetry, fault injection, scenarios, reset |
 | [docs/scenarios/](docs/scenarios/) | One page per incident scenario: timeline, expected signals, root cause, clearing |
@@ -120,6 +127,19 @@ uv run poe sim-down
 Single faults can be injected too: `uv run simctl fault-types`, then for example
 `uv run simctl inject api_latency --target api-gateway --param delay_ms=400`.
 
+## Investigate an incident
+
+```bash
+uv run poe sim-up && docker compose up -d postgres
+AI_SRE_MCP_REMEDIATION_ENABLED=true uv run poe mcp            # in another terminal
+uv run simctl trigger orders-n-plus-one-deploy --speed 20
+uv run python -m ai_sre.agent investigate "Why are orders failing and slow in the last 20 minutes?"
+uv run python -m ai_sre.agent approve <investigation-id> --approver <your-name>   # human approval
+```
+
+Works without an LLM key (deterministic rule-based reasoner); `--reasoner llm` uses Gemini for
+intake and planning. Guide: [docs/agent.md](docs/agent.md).
+
 ## MCP tool servers
 
 The agent investigates through MCP tools, not pasted telemetry. Full guide: [docs/mcp.md](docs/mcp.md).
@@ -174,6 +194,8 @@ dependencies), so they work the same on Windows, macOS and Linux:
 | `uv run poe sim-reset` / `sim-reset-hard` | Reset the simulated environment to baseline / recreate it from scratch |
 | `uv run poe test-sim` | Live tests against the running simulated environment (~20 min) |
 | `uv run simctl …` | Trigger, inspect and clear simulated incidents |
+| `uv run python -m ai_sre.agent …` | investigate / approve / show / cancel / graph |
+| `uv run poe test-agent-e2e` | Investigation graph end to end against the simulated environment (~6 min) |
 | `uv run poe mcp` / `test-mcp` | Run the MCP servers / protocol-level MCP tests against the simulated environment |
 | `uv run poe --help` | List all tasks |
 
@@ -213,6 +235,8 @@ backend/            FastAPI API (later: agent worker), package ai_sre
     services/         business logic (health checks now)
     db/               Postgres engine + ORM base, Redis client, Alembic migrations
     integrations/llm/ LLM provider interface, Gemini + scripted providers
+    agent/            LangGraph investigation engine: graph, state, gateway, findings,
+                      hypotheses + confidence, reasoners, remediation, runner, CLI
     mcp_servers/      MCP tool servers (logs, metrics, deployments, database, infrastructure,
                       incidents, remediation, registry), approvals, auth
     observability/    structlog setup, request-id/logging middleware

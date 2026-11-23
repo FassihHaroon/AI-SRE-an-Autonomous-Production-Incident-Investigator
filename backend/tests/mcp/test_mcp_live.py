@@ -258,6 +258,12 @@ def test_scenario_is_visible_through_tools(base_url: str, sim: Sim) -> None:
         timeout=150,
         what="pool exhausted",
     )
+    sim.prom.wait_for(
+        'sum(pg_stat_activity_count{datname="shop",state="idle in transaction"})',
+        lambda v: v >= 3,
+        timeout=120,
+        what="leaked sessions visible in pg_stat_activity",
+    )
     health, _ = run(call(base_url, "database", "get_database_health", {}))
     assert health.structured_content["idle_in_transaction"] >= 3
     errors, _ = run(

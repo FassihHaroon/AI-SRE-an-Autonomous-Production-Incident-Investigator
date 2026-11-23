@@ -20,6 +20,8 @@ dependencies = [
     # AI (agent graph is built in a later phase; dependencies pinned now so the
     # workspace lock and Docker image are stable)
     "langgraph>=1.2",
+    "langgraph-checkpoint-postgres>=3.0",
+    "psycopg[binary]>=3.2",
     "mcp>=2.3",
     "google-genai>=3.6",
 ]
