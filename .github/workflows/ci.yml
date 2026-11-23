@@ -79,3 +79,7 @@ jobs:
       - run: cp .env.example .env
       - run: docker compose config -q
       - run: docker compose build
+      - name: Simulated environment (compose config + image build)
+        run: |
+          docker compose -f docker-compose.sim.yml config -q
+          docker compose -f docker-compose.sim.yml build

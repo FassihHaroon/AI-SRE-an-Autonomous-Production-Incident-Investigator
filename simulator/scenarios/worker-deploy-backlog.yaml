@@ -1,0 +1,31 @@
+# Scenario C. Documentation: docs/scenarios/worker-deploy-backlog.md
+id: worker-deploy-backlog
+title: Worker deploy breaks shipping labels and the fulfilment queue backs up
+category: bad_deploy
+seed: 170
+summary: >
+  fulfilment-worker 1.7.0 switches to a new shipping-label client that points at a wrong
+  endpoint. Each label request hangs for 2 s and 85% of them time out, so most jobs fail and are
+  re-queued. Throughput collapses below the order rate and the queue grows steadily. The public
+  API stays healthy: orders are accepted but not fulfilled.
+steps:
+  - at_s: 0
+    description: fulfilment-worker 1.7.0 with the misconfigured labels API v2 client
+    deploy:
+      service: fulfilment-worker
+      version: 1.7.0
+      changes_summary: "Shipping labels: migrate to labels API v2 client"
+      author: j.lindqvist
+      flags:
+        label_service:
+          timeout_s: 2.0
+          failure_rate: 0.85
+signals:
+  - "Deployment: d-407 fulfilment-worker 1.6.2 to 1.7.0"
+  - "worker_job_failures_total{reason=LabelServiceTimeoutError} rising"
+  - "worker_jobs_processed_total{result=retried} up, {result=success} down"
+  - "queue_depth{queue=fulfilment} and queue_oldest_job_age_seconds grow steadily"
+  - "worker_job_duration_seconds ~2 s; worker_busy_consumers pinned at the concurrency limit"
+  - "Later: queue_depth{queue=fulfilment-dead-letter} grows (5 attempts exhausted)"
+  - "API error rate and latency unchanged"
+  - "Loki: 'POST https://labels.shipping.internal/v2/labels timed out after 2.0s'"

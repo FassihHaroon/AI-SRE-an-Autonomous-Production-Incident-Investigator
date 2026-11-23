@@ -28,6 +28,7 @@ dev = [
     "pytest-asyncio>=1.5",
     "httpx>=0.28",
     "ruff>=0.17",
+    "types-pyyaml>=6.0.12.20261122",
 ]
 
 # ---------------------------------------------------------------- ruff
@@ -53,6 +54,8 @@ known-first-party = ["ai_sre", "ai_sre_simulator", "ai_sre_evals"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S101", "S105", "S106", "PT011"]
+# Seed SQL is an f-string built from integer module constants only.
+"simulator/src/ai_sre_simulator/shop/seed.py" = ["S608"]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
@@ -63,6 +66,11 @@ mypy_path = ["backend/src", "simulator/src", "evals/src"]
 packages = ["ai_sre", "ai_sre_simulator", "ai_sre_evals"]
 warn_unreachable = true
 
+[[tool.mypy.overrides]]
+# asyncpg ships no type information (no py.typed / stubs).
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
+
 [tool.pydantic-mypy]
 init_forbid_extra = true
 init_typed = true
@@ -71,11 +79,12 @@ warn_required_dynamic_aliases = true
 # ---------------------------------------------------------------- pytest
 [tool.pytest.ini_options]
 testpaths = ["backend/tests", "simulator/tests"]
-addopts = "--import-mode=importlib -m 'not integration' -ra"
+addopts = "--import-mode=importlib -m 'not integration and not sim' -ra"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: needs running Postgres and Redis (docker compose up postgres redis)",
+    "sim: needs the running simulated environment (docker compose -f docker-compose.sim.yml up)",
 ]
 filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
 
@@ -115,3 +124,12 @@ up = { cmd = "docker compose up -d --build", help = "Build and start the stack" 
 down = { cmd = "docker compose down", help = "Stop the stack (keeps volumes)" }
 logs = { cmd = "docker compose logs -f --tail 200" }
 ps = { cmd = "docker compose ps" }
+
+# --- Simulated production environment (docker-compose.sim.yml; see docs/simulator.md)
+sim-up = { cmd = "docker compose -f docker-compose.sim.yml up -d --build --wait", help = "Build and start the SIMULATED environment" }
+sim-down = { cmd = "docker compose -f docker-compose.sim.yml down", help = "Stop the simulated environment (keeps volumes)" }
+sim-ps = { cmd = "docker compose -f docker-compose.sim.yml ps" }
+sim-logs = { cmd = "docker compose -f docker-compose.sim.yml logs -f --tail 100" }
+sim-reset = { cmd = "python scripts/sim_reset.py", help = "Clear all incidents, restore baseline deployments, drain queues" }
+sim-reset-hard = { cmd = "python scripts/sim_reset.py --hard", help = "Recreate the simulated environment from scratch (deletes its volumes)" }
+test-sim = { cmd = "pytest -m sim simulator/tests/live -v", help = "Live tests: trigger every scenario/fault, assert metrics + logs (needs sim-up; ~20 min)" }

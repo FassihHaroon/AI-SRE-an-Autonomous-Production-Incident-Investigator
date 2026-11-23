@@ -1,0 +1,37 @@
+# Scenario A. Documentation: docs/scenarios/orders-n-plus-one-deploy.md
+id: orders-n-plus-one-deploy
+title: Orders deploy introduces an N+1 query and saturates the DB connection pool
+category: bad_deploy
+seed: 481
+summary: >
+  orders-service 2.4.0 adds line items to the order-history response. The new code runs one
+  extra query per order, and that query compares order_id as text, which defeats the index:
+  every history request now runs ~20 sequential scans of order_items. Latency climbs, the
+  orders-service connection pool saturates and requests start failing with pool timeouts.
+  An unrelated api-gateway release four minutes earlier is a red herring.
+steps:
+  - at_s: 0
+    description: Unrelated api-gateway release (red herring)
+    deploy:
+      service: api-gateway
+      version: 3.8.1
+      changes_summary: "Checkout banner copy update; bump httpx to 0.28.1"
+      author: a.rahman
+  - at_s: 240
+    description: orders-service 2.4.0 ships the N+1 order-history query
+    deploy:
+      service: orders-service
+      version: 2.4.0
+      changes_summary: "Order history: include line items for each order (mobile app v5)"
+      author: m.okafor
+      flags:
+        order_history_query: per_order_items
+signals:
+  - "Deployments: d-407 api-gateway 3.8.1 (t+0), d-408 orders-service 2.4.0 (t+240s)"
+  - "orders-service p99 latency of GET /customers/{customer_id}/orders: tens of ms to seconds"
+  - "db_query_duration_seconds{query=get_order_items_for_history} appears and is slow"
+  - "db_pool_connections_in_use reaches db_pool_max_connections; db_pool_pending_acquires > 0"
+  - "db_pool_acquire_timeouts_total rising; 503 db_pool_exhausted on orders-service"
+  - "api-gateway 502s on every orders-backed route, not only order history"
+  - "Loki: 'timed out after 2.0s waiting for a database connection'"
+  - "Postgres slow-query log: SELECT * FROM order_items WHERE order_id::text = $1"

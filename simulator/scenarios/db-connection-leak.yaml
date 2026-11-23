@@ -1,0 +1,30 @@
+# Scenario E. Documentation: docs/scenarios/db-connection-leak.md
+id: db-connection-leak
+title: Audit-trail flag leaks DB connections until the pool is exhausted
+category: config_change
+seed: 77
+summary: >
+  A config change enables the orders.audit_trail feature flag. The audit code path writes an
+  audit row on a second connection and, for about 30% of order lookups, never commits or
+  releases it. Connections pile up 'idle in transaction', the 8-connection pool drains within
+  a minute or two, and then every orders-service endpoint fails with pool timeouts. Query latency
+  itself stays normal.
+steps:
+  - at_s: 0
+    description: Config change enables orders.audit_trail on orders-service
+    deploy:
+      service: orders-service
+      kind: config_change
+      version: 2.3.1
+      changes_summary: "Enable feature flag orders.audit_trail=true (compliance: audit order lookups)"
+      author: r.patel
+      rollout_s: 3
+      flags:
+        audit_trail: true
+signals:
+  - "Deployment: d-407 orders-service config_change (version unchanged, 2.3.1)"
+  - "db_pool_connections_in_use climbs stepwise to the maximum and stays there at normal traffic"
+  - "pg_stat_activity_count{state='idle in transaction'} grows (postgres-exporter)"
+  - "db_pool_acquire_timeouts_total rising; 503 on ALL orders-service routes"
+  - "db_query_duration_seconds unchanged (not a slow-query problem)"
+  - "Loki: 'timed out after 2.0s waiting for a database connection'"

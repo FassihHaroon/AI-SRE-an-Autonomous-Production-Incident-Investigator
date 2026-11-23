@@ -22,18 +22,19 @@
 | Phase | Track | Focused days | Cumulative |
 |-------|-------|-------------:|-----------:|
 | P1 Foundations | Core | 3 | 3 |
-| P2 Simulator + MCP servers | Core | 8 | 11 |
-| P3 Agent core (walking skeleton) | Core | 8 | 19 |
-| P4 Evaluation harness v1 | Core | 4 | 23 |
-| P5 Reasoning quality | Core | 7 | 30 |
-| P6 Knowledge / RAG | Core | 5 | 35 |
-| P7 API, worker, auth, SSE | Product | 7 | 42 |
-| P8 Frontend | Product | 10 | 52 |
-| P9 Remediation + approval | Product | 6 | 58 |
-| P10 Observability | Ops | 4 | 62 |
-| P11 Hardening + release | Ops | 6 | 68 |
+| P2 Simulated production environment | Core | 8 | 11 |
+| P3 MCP servers + agent core (walking skeleton) | Core | 11 | 22 |
+| P4 Evaluation harness v1 | Core | 4 | 26 |
+| P5 Reasoning quality | Core | 7 | 33 |
+| P6 Knowledge / RAG | Core | 5 | 38 |
+| P7 API, worker, auth, SSE | Product | 7 | 45 |
+| P8 Frontend | Product | 10 | 55 |
+| P9 Remediation + approval | Product | 6 | 61 |
+| P10 Observability | Ops | 4 | 65 |
+| P11 Hardening + release | Ops | 6 | 71 |
 
-**Total ≈ 68 focused days.** That is roughly 14 weeks full-time or 5–6 months part-time,
+**Total ≈ 71 focused days** (68 originally; +3 when the MCP servers moved into P3).
+That is roughly 14–15 weeks full-time or 5–6 months part-time,
 plus about 20% buffer for the unknowns listed in § 4.
 
 ### Milestones
@@ -84,43 +85,65 @@ Acceptance criteria are written to be checkable by a test, a command or a demo.
 
 ---
 
-### Phase 2 — Simulator and MCP tool servers (8 days)
+### Phase 2 — Simulated production environment (8 days) — ✅ delivered 2026-11-23
 
-**Scope**
-- Scenario YAML schema (Pydantic) + loader + validation errors with file/line context.
-- Engine: virtual clock, sessions (create/advance/destroy), seeded generators for metrics
-  (baseline + noise + diurnal + fault effects), logs (templated, rate-based, with error
-  signatures), deployments/config/flags, DB stats, infra status, alerts (threshold rules
-  evaluated over generated metrics).
-- Five MCP servers (FastMCP, streamable HTTP, mounted at `/mcp/*`), bearer-token auth.
-  Read-only tools per agent-design § 5.2–5.5. Remediation server with `list_actions` +
-  `dry_run` only (execute arrives in P9).
-- Common response envelope, 4 KB cap, server-side summarisation (error signatures, change
-  points, anomaly detection).
-- Admin HTTP API: sessions, clock, scenario list.
-- Scenarios 1–4 fully authored (others are added through P5 as they are needed).
-- Seeded fake secrets and injection strings available as scenario features (used later).
+**Changed from the approved plan (2026-11-23, project lead's request).** Instead of a seeded,
+compute-on-query telemetry engine behind MCP servers, Phase 2 delivers a **live simulated
+production environment** that the agent will investigate through the interfaces a real SRE uses
+(Prometheus, Loki, a deployments API). The MCP tool servers move to Phase 3, where they wrap these
+APIs. Reproducibility comes from deterministic scenarios plus recorded tool responses (Phase 4
+cassettes) instead of byte-identical generated telemetry. Details: [simulator.md](simulator.md);
+decision records in architecture.md A6 and § 15.
 
-**Out of scope:** remediation execute, traces, live Prometheus export.
+**Scope (as delivered)**
+- Shop services (one image, package `ai_sre_simulator`): `api-gateway`, `orders-service`,
+  `fulfilment-worker` (Redis queue, retries, dead-letter), a third-party `payments-provider`,
+  PostgreSQL 16 (`pg_stat_statements`, slow-query log, deterministic seed of 120k orders / 600k
+  items), Redis 7, and a seeded open-loop load generator.
+- Telemetry: Prometheus metrics for requests/status/latency per endpoint, DB query latency, pool
+  utilisation, Redis latency, queue depth/age, worker results/failures, CPU/memory, build info;
+  postgres- and redis-exporters; 11 alert rules. Structured JSON logs (timestamp, severity,
+  service, environment, version, trace id, request id, endpoint, message, error) shipped by Alloy
+  to Loki. W3C trace context propagated gateway → orders → worker. Grafana dashboard.
+- `deployer` (simulated CD): deployment records (id, service, version, previous version, kind,
+  status, timestamps, changes summary, author, commit), rollouts that succeed or fail, baseline
+  history `d-401…d-406`.
+- `chaos` control plane + `simctl` CLI: 12 reversible fault types (in-app, Toxiproxy network
+  faults, deployment-borne bugs, traffic), 8 scenario timelines (A–E from the brief plus failed
+  canary, memory leak, DB network latency), clear/reset, epoch-based determinism.
+- Scenario docs (`docs/scenarios/*.md`, one per scenario), `scripts/sim_reset.py`, poe tasks.
+- Monitoring, control plane, load generator and third party are separated: fault definitions
+  and build flags never appear in metrics, logs or public APIs.
+
+**Moved to Phase 3:** MCP servers (telemetry, changes, infrastructure, database) as adapters over
+Prometheus/Loki/deployer, with the response envelope, 4 KB cap and server-side summarisation.
+Remediation `list_actions`/`dry_run` moves with them.
 
 **Acceptance criteria**
-- [ ] **Determinism:** same `(scenario, seed, session, query)` → byte-identical response
-      (property test over all tools × 4 scenarios).
-- [ ] Flagship scenario: `metrics.detect_anomalies` reports an `orders-service` p99 anomaly
-      with onset within ±1 min of the scenario definition; `changes.list_deployments` shows
-      both the culprit and the red-herring deploy; `db.slow_queries` surfaces the N+1
-      fingerprint.
-- [ ] Every tool response ≤ 4 KB `data` and validates against its declared output schema.
-- [ ] Unknown service → `ok=false` with a hint listing valid services.
-- [ ] No tool response contains fault-definition fields (`fault`, `effects`, `root_cause`)
-      (contract test).
-- [ ] An MCP client (`mcp` SDK) script lists tools on all 5 servers and calls each one
-      successfully; unauthenticated calls are rejected.
-- [ ] p95 tool latency < 200 ms locally.
+- [ ] `uv run poe sim-up` starts all 17 containers healthy on a clean machine; seed < 30 s.
+- [ ] Every required telemetry signal is exported, every series and log line is labelled
+      simulated, route labels are templates (live test `test_telemetry.py`).
+- [ ] A trace id from one order appears in api-gateway, orders-service and fulfilment-worker
+      logs.
+- [ ] Each of the 8 scenarios produces its documented metric, log and deployment signals, and
+      `clear` returns the environment to baseline (live test `test_scenarios.py`).
+- [ ] Each fault primitive is observable while active and recovers after removal
+      (`test_faults.py`).
+- [ ] After `reset`, the same scenario yields identical run/deployment/fault records
+      (`test_determinism_and_reset.py`).
+- [ ] Hidden components (chaos, toxiproxy, loadgen, payments-provider) are absent from
+      Prometheus targets and Loki streams.
+- [ ] Unit tests, ruff and mypy (strict) pass; CI validates and builds the simulator image.
 
 ---
 
-### Phase 3 — Agent core: walking skeleton (8 days)
+### Phase 3 — MCP servers + agent core: walking skeleton (11 days)
+
+**Added from Phase 2:** MCP servers over the simulated environment's monitoring APIs (telemetry =
+Prometheus + Loki, changes = deployer, infrastructure = Prometheus up/alerts/process metrics,
+database = postgres-exporter + slow-query log) with the common envelope, 4 KB cap, summarisation,
+bearer auth and contract tests that reuse `ai_sre_simulator.testing`. Estimate +3 days.
+
 
 **Scope**
 - `agent/llm.py`: provider abstraction with `anthropic` (official SDK), `scripted` and

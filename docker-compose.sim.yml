@@ -1,0 +1,330 @@
+# ============================================================================================
+#  AI SRE: SIMULATED production environment (Phase 2).  NOT REAL PRODUCTION.
+#
+#  A small shop (api-gateway, orders-service, fulfilment-worker, PostgreSQL, Redis) under
+#  synthetic load, with Prometheus, Loki and Grafana, a CD system (deployer) and a fault
+#  injection control plane (chaos + toxiproxy).
+#
+#    docker compose -f docker-compose.sim.yml up -d --build --wait      (or: uv run poe sim-up)
+#    uv run simctl scenarios | trigger <id> | clear | reset
+#
+#  Separate compose project from the AI SRE platform (docker-compose.yml): its own database,
+#  cache and ports. Host ports bind to 127.0.0.1 only. See docs/simulator.md.
+# ============================================================================================
+
+name: ai-sre-sim
+
+x-observable: &observable
+  ai-sre.sim.observable: "true"   # Alloy ships this container's logs to Loki
+  ai-sre.sim.simulated: "true"
+
+x-hidden: &hidden
+  ai-sre.sim.observable: "false"  # control plane / third party: invisible to the investigator
+  ai-sre.sim.simulated: "true"
+
+x-sim-image: &sim-image
+  image: ai-sre-simulator:dev
+  pull_policy: never
+  restart: unless-stopped
+
+x-env: &env
+  SIM_ENVIRONMENT: simulated-prod
+  SIM_SEED: "1337"
+  SIM_LOG_LEVEL: INFO
+  # Application traffic goes through toxiproxy (aliases shop-db, shop-cache, payments-api) so
+  # network faults are real. The control plane connects to the real hosts.
+  SIM_DATABASE_URL: postgresql://shop:${SIM_POSTGRES_PASSWORD:-simulated-only}@shop-db:5432/shop
+  SIM_CONTROL_DATABASE_URL: postgresql://shop:${SIM_POSTGRES_PASSWORD:-simulated-only}@postgres:5432/simcontrol
+  SIM_REDIS_URL: redis://shop-cache:6379/0
+  SIM_DEPLOYER_URL: http://deployer:8000
+  SIM_CHAOS_URL: http://chaos:8000
+  # Fixed glibc mmap threshold: large freed buffers go back to the OS, so resident memory
+  # visibly drops when a memory fault is cleared (glibc's adaptive threshold would hide it).
+  MALLOC_MMAP_THRESHOLD_: "131072"
+
+x-http-health: &http-health
+  test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status == 200 else 1)"]
+  interval: 5s
+  timeout: 3s
+  retries: 12
+  start_period: 10s
+
+services:
+  # ------------------------------------------------------------------ data stores
+  postgres:
+    image: postgres:16-alpine
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - max_connections=200
+      - -c
+      - log_min_duration_statement=250     # slow-query log lines end up in Loki
+      - -c
+      - log_line_prefix=%m [%p] %q%u@%d
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD: ${SIM_POSTGRES_PASSWORD:-simulated-only}
+      POSTGRES_DB: shop
+    volumes:
+      - sim-postgres-data:/var/lib/postgresql/data
+      - ./deploy/sim/postgres/init.sql:/docker-entrypoint-initdb.d/10-simcontrol.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    labels: *observable
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    labels: *observable
+    restart: unless-stopped
+
+  # Network fault injection point between the services and postgres / redis / payments.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    volumes:
+      - ./deploy/sim/toxiproxy/toxiproxy.json:/config/toxiproxy.json:ro
+    networks:
+      default:
+        aliases: [shop-db, shop-cache, payments-api]
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    labels: *hidden
+    restart: unless-stopped
+
+  # One-shot: schema + deterministic seed data (idempotent).
+  seed:
+    <<: *sim-image
+    build:
+      context: .
+      dockerfile: deploy/docker/simulator.Dockerfile
+    command: ["seed"]
+    restart: "no"
+    environment:
+      <<: *env
+      SIM_DATABASE_URL: postgresql://shop:${SIM_POSTGRES_PASSWORD:-simulated-only}@postgres:5432/shop
+    depends_on:
+      postgres: {condition: service_healthy}
+    labels: *hidden
+
+  # ------------------------------------------------------------------ control plane
+  deployer:
+    <<: *sim-image
+    command: ["deployer"]
+    environment:
+      <<: *env
+      SIM_DB_POOL_SIZE: "5"
+    ports: ["127.0.0.1:${SIM_DEPLOYER_PORT:-8202}:8000"]
+    healthcheck: *http-health
+    depends_on:
+      postgres: {condition: service_healthy}
+      seed: {condition: service_completed_successfully}
+    labels: *observable
+
+  chaos:
+    <<: *sim-image
+    command: ["chaos"]
+    environment:
+      <<: *env
+      SIM_DATABASE_URL: postgresql://shop:${SIM_POSTGRES_PASSWORD:-simulated-only}@postgres:5432/shop
+      SIM_REDIS_URL: redis://redis:6379/0
+      SIM_TOXIPROXY_URL: http://toxiproxy:8474
+    ports: ["127.0.0.1:${SIM_CHAOS_PORT:-8210}:8000"]
+    healthcheck: *http-health
+    depends_on:
+      toxiproxy: {condition: service_healthy}
+      deployer: {condition: service_healthy}
+    labels: *hidden
+
+  # ------------------------------------------------------------------ the shop
+  payments-provider:            # simulated THIRD PARTY: no logs or metrics collected
+    <<: *sim-image
+    command: ["payments-provider"]
+    environment: *env
+    healthcheck: *http-health
+    depends_on:
+      chaos: {condition: service_healthy}
+    labels: *hidden
+
+  orders-service:
+    <<: *sim-image
+    command: ["orders-service"]
+    environment:
+      <<: *env
+      SIM_DEFAULT_VERSION: 2.3.1
+      SIM_DB_POOL_SIZE: "8"
+      SIM_PAYMENTS_URL: http://payments-api:8080
+    ports: ["127.0.0.1:${SIM_ORDERS_PORT:-8201}:8000"]
+    mem_limit: 256m
+    healthcheck: *http-health
+    depends_on:
+      seed: {condition: service_completed_successfully}
+      toxiproxy: {condition: service_healthy}
+      chaos: {condition: service_healthy}
+      payments-provider: {condition: service_healthy}
+    labels: *observable
+
+  api-gateway:
+    <<: *sim-image
+    command: ["api-gateway"]
+    environment:
+      <<: *env
+      SIM_DEFAULT_VERSION: 3.8.0
+      SIM_DB_POOL_SIZE: "10"
+      SIM_ORDERS_URL: http://orders-service:8000
+    ports: ["127.0.0.1:${SIM_GATEWAY_PORT:-8200}:8000"]
+    mem_limit: 320m             # gateway-memory-leak scenario OOM-kills at this limit
+    healthcheck: *http-health
+    depends_on:
+      orders-service: {condition: service_healthy}
+    labels: *observable
+
+  fulfilment-worker:
+    <<: *sim-image
+    command: ["fulfilment-worker"]
+    environment:
+      <<: *env
+      SIM_DEFAULT_VERSION: 1.6.2
+      SIM_DB_POOL_SIZE: "4"
+      SIM_WORKER_CONCURRENCY: "2"
+    mem_limit: 256m
+    healthcheck:
+      <<: *http-health
+      test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9100/metrics', timeout=2).status == 200 else 1)"]
+    depends_on:
+      seed: {condition: service_completed_successfully}
+      toxiproxy: {condition: service_healthy}
+      chaos: {condition: service_healthy}
+    labels: *observable
+
+  loadgen:                      # synthetic users: invisible to the investigator
+    <<: *sim-image
+    command: ["loadgen"]
+    environment:
+      <<: *env
+      SIM_GATEWAY_URL: http://api-gateway:8000
+      SIM_LOADGEN_RPS: ${SIM_LOADGEN_RPS:-10}
+    depends_on:
+      api-gateway: {condition: service_healthy}
+    labels: *hidden
+
+  # ------------------------------------------------------------------ monitoring
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    command: ["--collector.stat_statements", "--collector.long_running_transactions"]
+    environment:
+      DATA_SOURCE_NAME: postgresql://shop:${SIM_POSTGRES_PASSWORD:-simulated-only}@shop-db:5432/shop?sslmode=disable
+    depends_on:
+      toxiproxy: {condition: service_healthy}
+    labels: *hidden
+    restart: unless-stopped
+
+  redis-exporter:               # through toxiproxy: sees Redis the way the services do
+    image: oliver006/redis_exporter:v1.74.0
+    environment:
+      REDIS_ADDR: redis://shop-cache:6379
+      REDIS_EXPORTER_CONNECTION_TIMEOUT: 2s
+    depends_on:
+      toxiproxy: {condition: service_healthy}
+    labels: *hidden
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/sim/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/sim/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - sim-prometheus-data:/prometheus
+    ports: ["127.0.0.1:${SIM_PROMETHEUS_PORT:-9090}:9090"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    labels: *hidden
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.5.3
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./deploy/sim/loki/config.yaml:/etc/loki/config.yaml:ro
+      - sim-loki-data:/loki
+    ports: ["127.0.0.1:${SIM_LOKI_PORT:-3100}:3100"]
+    healthcheck:   # /ready only turns 200 once the ingester has joined the ring (~15 s)
+      test: ["CMD", "/busybox/wget", "-q", "--spider", "http://127.0.0.1:3100/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    labels: *hidden
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.10.0
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+    volumes:
+      - ./deploy/sim/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # read container logs (local dev only)
+    depends_on:
+      loki: {condition: service_healthy}
+    labels: *hidden
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${SIM_GRAFANA_ADMIN_PASSWORD:-simulated-only}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/shop-overview.json
+    volumes:
+      - ./deploy/sim/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/sim/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - sim-grafana-data:/var/lib/grafana
+    ports: ["127.0.0.1:${SIM_GRAFANA_PORT:-3000}:3000"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      prometheus: {condition: service_healthy}
+      loki: {condition: service_healthy}
+    labels: *hidden
+    restart: unless-stopped
+
+volumes:
+  sim-postgres-data:
+  sim-prometheus-data:
+  sim-loki-data:
+  sim-grafana-data:

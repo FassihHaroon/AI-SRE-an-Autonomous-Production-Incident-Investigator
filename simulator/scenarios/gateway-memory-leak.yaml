@@ -1,0 +1,25 @@
+# Scenario G. Documentation: docs/scenarios/gateway-memory-leak.md
+id: gateway-memory-leak
+title: api-gateway deploy adds an unbounded in-process cache (memory leak)
+category: bad_deploy
+seed: 512
+summary: >
+  api-gateway 3.8.2 caches product recommendations in process memory with no eviction. Every
+  product-detail request adds ~768 KB, so resident memory grows by roughly 1.5 MB/s at normal
+  traffic. When the container reaches its 320 MiB limit the kernel OOM-kills the process; it
+  restarts, briefly drops requests, and the leak starts again (sawtooth).
+steps:
+  - at_s: 0
+    description: api-gateway 3.8.2 with the unbounded recommendations cache
+    deploy:
+      service: api-gateway
+      version: 3.8.2
+      changes_summary: "Product detail: cache recommendations in-process to cut DB reads"
+      author: a.rahman
+      flags:
+        recommendations_cache_kb: 768
+signals:
+  - "Deployment: d-407 api-gateway 3.8.0 to 3.8.2"
+  - "process_resident_memory_bytes{service=api-gateway} grows linearly with product-detail traffic"
+  - "At the 320 MiB limit: OOM kill, up{service=api-gateway} == 0 briefly, process_start_time_seconds resets"
+  - "Error burst (connection failures) during each restart, then the climb repeats"

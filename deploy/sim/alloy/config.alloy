@@ -1,0 +1,58 @@
+// Grafana Alloy: ships container stdout of the SIMULATED environment to Loki.
+//
+// Only containers labelled ai-sre.sim.observable=true are collected (the shop services, the
+// deployer, PostgreSQL and Redis). The chaos controller, toxiproxy, the third-party payments
+// provider and the load generator are deliberately invisible.
+
+discovery.docker "sim" {
+  host = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=ai-sre-sim"]
+  }
+  filter {
+    name   = "label"
+    values = ["ai-sre.sim.observable=true"]
+  }
+}
+
+discovery.relabel "sim" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "sim" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.sim.targets
+  labels        = {"environment" = "simulated-prod"}
+  relabel_rules = discovery.relabel.sim.rules
+  forward_to    = [loki.process.sim.receiver]
+}
+
+loki.process "sim" {
+  // JSON lines from the shop services: promote severity to a (low-cardinality) label.
+  stage.json {
+    expressions = { level = "severity" }
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

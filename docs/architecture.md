@@ -79,7 +79,7 @@ decide otherwise.
 | A3 | **What "the last 15 minutes" is relative to** in a simulated world. | Each simulator session has a **virtual clock**. An investigation captures `reference_time` from that clock at creation. All windows are resolved deterministically against it. | Without this, evals are not reproducible. |
 | A4 | **"Investigation timeline"**: the incident's timeline or the agent's? | **Both**: (a) the *incident timeline* (what happened in the system, built from evidence timestamps) and (b) the *investigation activity log* (what the agent did and when). | UI and schema. |
 | A5 | **"Optionally execute approved remediation"**: real or simulated? | MVP is **simulated only**. Remediation acts on simulator state, and the next telemetry query shows the effect. Real executors are future work behind the same contract. | Safety and scope. |
-| A6 | **Is Prometheus/Grafana the *data source* the agent investigates, or the monitor for the AI SRE itself?** | MVP: Prometheus/Grafana/OTel observe **the AI SRE platform**. The agent investigates **simulator data** via MCP. Adapters for real Prometheus/Loki come later behind the same tool contracts. | Real Prometheus cannot easily serve deterministic, back-dated, seeded scenarios. Using it as the data source would wreck reproducibility. |
+| A6 | **Is Prometheus/Grafana the *data source* the agent investigates, or the monitor for the AI SRE itself?** | **Revised in Phase 2 (2026-11-23):** both. The agent investigates a **live simulated environment** through the interfaces a real SRE uses: its own Prometheus (PromQL), Loki (LogQL) and a deployments API ([simulator.md](simulator.md)). The platform's own observability stack (Phase 10) is separate. | Investigating through real monitoring APIs makes the tool contracts transferable to production adapters. Reproducibility moves from "seeded telemetry generator" to "deterministic scenarios + recorded tool responses (cassettes)". |
 | A7 | **Distributed traces** as an evidence source. | Deferred to post-MVP (a `traces.*` tool family). | Saves 1–2 weeks. Logs + metrics + deploys cover the MVP scenarios. |
 | A8 | **Multi-tenancy.** | Single organisation, single environment namespace. | Schema and auth simplicity. |
 | A9 | **Trigger model.** | MVP: investigations are started manually by a human. Alert-triggered investigations are future work. | Avoids an alert-routing subsystem. |
@@ -160,6 +160,13 @@ flowchart LR
 - Publishes progress events (Redis Stream per investigation + durable rows in Postgres).
 
 ### 4.4 Simulator (`simulator/`)
+
+> **Revised in Phase 2 (2026-11-23).** The simulator was built as a *live* simulated production
+> environment instead of the seeded, compute-on-query engine described below: a small shop under
+> synthetic load with real Prometheus metrics, JSON logs in Loki, deployment records and a reversible
+> fault-injection control plane. See [simulator.md](simulator.md) for the design as built. The MCP
+> tool servers move to Phase 3, where they will wrap these monitoring APIs. The text below is kept
+> for the record of the original decision.
 
 A separate Python service that plays the part of "production". It is the most important
 enabler for the project: without a believable, deterministic world, the agent cannot be built
@@ -822,7 +829,7 @@ ai-sre/
 
 | Tempting choice | Why not (for now) |
 |-----------------|-------------------|
-| Running a real microservice demo app with real OTel + fault injection as the data source | Non-deterministic, heavy (10+ containers), slow to set up scenarios. The seeded simulator gives reproducible evals. A "live mode" exporter can come later. |
+| ~~Running a real microservice demo app with real OTel + fault injection as the data source~~ | **Reversed in Phase 2 (2026-11-23)** at the project lead's request: the simulator is now a small live shop with Prometheus, Loki, a CD system and reversible fault injection ([simulator.md](simulator.md)). Mitigations for the original concerns: scenarios are deterministic (fixed steps, seeds, epoch reset), tests assert thresholds rather than exact values, and byte-identical agent inputs come from recorded tool responses. Cost: ~17 containers, ~1.5 GB RAM. |
 | A free-chatting multi-agent "swarm" | Hard to bound, test and evaluate. A parameterised step executor fanned out with `Send` gives parallel specialists with no inter-agent chatter. |
 | Separate vector DB (Qdrant, Weaviate) | pgvector handles a corpus of this size (thousands of chunks) easily and keeps one backup/migration story. |
 | Celery | arq is enough for one queue and async code. |

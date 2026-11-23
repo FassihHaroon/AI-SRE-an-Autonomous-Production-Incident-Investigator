@@ -1,0 +1,91 @@
+# Alert rules for the SIMULATED production environment. Evaluated by Prometheus; active
+# alerts are readable at /api/v1/alerts (no Alertmanager needed locally).
+
+groups:
+  - name: shop-golden-signals
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum by (service) (rate(http_server_requests_total{status=~"5.."}[1m]))
+            / sum by (service) (rate(http_server_requests_total[1m])) > 0.05
+        for: 30s
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.service }}: {{ $value | humanizePercentage }} of requests failing"
+
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service, le) (rate(http_server_request_duration_seconds_bucket[1m]))) > 1
+        for: 30s
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.service }}: p99 latency {{ $value | humanizeDuration }}"
+
+      - alert: ServiceDown
+        expr: up{job=~"api-gateway|orders-service|fulfilment-worker"} == 0
+        for: 15s
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.service }} is not answering scrapes"
+
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes{job=~"api-gateway|orders-service|fulfilment-worker"} > 200e6
+        for: 30s
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.service }} resident memory {{ $value | humanize1024 }}B"
+
+  - name: shop-dependencies
+    rules:
+      - alert: DBPoolSaturated
+        expr: db_pool_connections_in_use / db_pool_max_connections >= 0.9
+        for: 30s
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.service }}: DB connection pool {{ $value | humanizePercentage }} in use"
+
+      - alert: DBPoolAcquireTimeouts
+        expr: rate(db_pool_acquire_timeouts_total[1m]) > 0
+        for: 15s
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.service }}: requests time out waiting for DB connections"
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 15s
+        labels: {severity: critical}
+        annotations:
+          summary: "Redis is unreachable"
+
+      - alert: RedisCommandErrors
+        expr: sum by (service) (rate(redis_command_errors_total[1m])) > 0.5
+        for: 15s
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.service }}: Redis commands failing"
+
+      - alert: UpstreamErrors
+        expr: |
+          sum by (service, peer) (rate(http_client_requests_total{status=~"5..|error"}[1m])) > 0.2
+        for: 30s
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.service }}: calls to {{ $labels.peer }} failing"
+
+  - name: fulfilment
+    rules:
+      - alert: FulfilmentQueueBacklog
+        expr: queue_depth{queue="fulfilment"} > 50
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "Fulfilment queue depth {{ $value }}"
+
+      - alert: FulfilmentJobFailures
+        expr: sum(rate(worker_job_failures_total[1m])) > 0.1
+        for: 30s
+        labels: {severity: warning}
+        annotations:
+          summary: "Fulfilment jobs failing ({{ $value | humanize }}/s)"

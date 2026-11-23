@@ -1,0 +1,27 @@
+# Scenario D. Documentation: docs/scenarios/payments-provider-errors.md
+id: payments-provider-errors
+title: Upstream payments provider starts returning errors
+category: dependency_failure
+seed: 503
+summary: >
+  The third-party payments provider degrades: 40% of charge requests return 503 and every call
+  is ~600 ms slower. Order placement fails for those orders (orders-service returns 502 and the
+  gateway passes it on). Nothing changed internally, and the provider's own telemetry is not
+  available: only the shop's client-side view of it.
+steps:
+  - at_s: 0
+    description: Payments provider returns 503 for 40% of charges, +600 ms latency
+    fault:
+      type: dependency_errors
+      target: payments-provider
+      params:
+        error_rate: 0.4
+        status: 503
+        extra_latency_ms: 600
+signals:
+  - "http_client_requests_total{peer=payments-provider,status=503} rising"
+  - "http_client_request_duration_seconds{peer=payments-provider} ~100 ms to ~700 ms"
+  - "orders_created_total{result=payment_failed} rising"
+  - "502 on orders-service POST /orders and api-gateway POST /api/orders; other routes healthy"
+  - "Loki: 'payment for order N failed: payments-provider returned HTTP 503 Service Unavailable'"
+  - "No deployment in the window"

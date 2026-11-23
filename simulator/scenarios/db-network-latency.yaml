@@ -1,0 +1,25 @@
+# Scenario H. Documentation: docs/scenarios/db-network-latency.md
+id: db-network-latency
+title: Network latency to the database host
+category: infrastructure
+seed: 5432
+summary: >
+  The network path to the PostgreSQL host degrades and adds about 120 ms (±30 ms) to every
+  round trip. Every DB-backed endpoint on every service slows down in proportion to the number
+  of queries it makes. The database itself is healthy: server-side query times are unchanged
+  and no deployment happened.
+steps:
+  - at_s: 0
+    description: +120 ms (±30 ms) latency on the network path to PostgreSQL
+    fault:
+      type: db_network_latency
+      target: shop-db
+      params:
+        latency_ms: 120
+        jitter_ms: 30
+signals:
+  - "db_query_duration_seconds up by ~120 ms for every query name, on every service"
+  - "Endpoint latency rises in proportion to queries per request (POST /orders the most)"
+  - "db_pool_connections_in_use rises (connections are held longer)"
+  - "pg_stat_statements mean execution time unchanged; database CPU not higher"
+  - "No deployment in the window"

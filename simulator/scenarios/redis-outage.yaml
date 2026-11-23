@@ -1,0 +1,27 @@
+# Scenario B. Documentation: docs/scenarios/redis-outage.md
+id: redis-outage
+title: Redis becomes unreachable
+category: cache_failure
+seed: 6379
+summary: >
+  The Redis host stops answering: connections are accepted but no data comes back, so every
+  command waits for the 0.5 s client timeout. Catalog reads fall back to PostgreSQL (slower but
+  successful), carts fail, order placement fails after payment because the fulfilment job cannot
+  be queued, and the worker cannot read its queue.
+steps:
+  - at_s: 0
+    description: Redis stops responding (network black hole)
+    fault:
+      type: redis_failure
+      target: shop-cache
+      params:
+        mode: timeout
+signals:
+  - "redis_up == 0 (redis-exporter)"
+  - "redis_command_errors_total rising on api-gateway, orders-service and fulfilment-worker"
+  - "redis_command_duration_seconds p99 ~0.5 s (client timeout)"
+  - "cache_requests_total{result=error}; catalog latency up (DB fallback) but still 200"
+  - "503 cache_unavailable on GET /api/cart/{customer_id}"
+  - "POST /api/orders 502: orders-service 503 queue_unavailable after the payment succeeded"
+  - "Loki: 'catalog cache unavailable, reading from database', 'cannot read from fulfilment queue'"
+  - "No deployment in the window"

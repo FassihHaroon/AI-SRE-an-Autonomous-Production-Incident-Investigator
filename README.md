@@ -10,15 +10,19 @@ Everything runs locally with Docker Compose against a **deterministic simulated 
 environment**. The only external dependency is an LLM API (the Gemini free tier during
 development).
 
-> **Status: Phase 1 of 11 (foundations) complete.** The platform skeleton runs end to end:
-> API, database, cache, web UI, health checks, logging, the LLM provider layer, tests and CI.
-> The simulator, the investigation agent and the rest of the product arrive in later phases;
-> see [docs/implementation-roadmap.md](docs/implementation-roadmap.md).
+> **Status: Phase 2 of 11 complete.** Phase 1 delivered the platform skeleton (API, database,
+> cache, web UI, health checks, logging, LLM provider layer, tests, CI). Phase 2 adds a
+> **simulated production environment**: a small shop under synthetic load with Prometheus, Loki,
+> Grafana, deployment records and a reversible fault-injection system with 8 incident scenarios
+> ([docs/simulator.md](docs/simulator.md)). The investigation agent arrives in Phase 3; see
+> [docs/implementation-roadmap.md](docs/implementation-roadmap.md).
 
 ## Documentation
 
 | Document | What's in it |
 |----------|--------------|
+| [docs/simulator.md](docs/simulator.md) | The simulated production environment: topology, telemetry, fault injection, scenarios, reset |
+| [docs/scenarios/](docs/scenarios/) | One page per incident scenario: timeline, expected signals, root cause, clearing |
 | [docs/architecture.md](docs/architecture.md) | Components, data model, API, observability, deployment, MVP vs. future |
 | [docs/agent-design.md](docs/agent-design.md) | LangGraph workflow, state, nodes, MCP tools, confidence scoring, failure modes |
 | [docs/security-design.md](docs/security-design.md) | Threat model, approval tokens, RBAC, redaction, safety tests |
@@ -66,6 +70,7 @@ docker compose down -v        # stop and delete all data
 
 Ports bind to `127.0.0.1` only. If 5432, 6379, 8010 or 8090 are taken on your machine,
 change `POSTGRES_HOST_PORT`, `REDIS_HOST_PORT`, `API_HOST_PORT` or `WEB_HOST_PORT` in `.env`.
+The simulated environment uses 3000, 3100, 8200–8202, 8210 and 9090 (overridable with `SIM_*_PORT`).
 
 ### What starts
 
@@ -76,6 +81,39 @@ change `POSTGRES_HOST_PORT`, `REDIS_HOST_PORT`, `API_HOST_PORT` or `WEB_HOST_POR
 | `migrate` | One-shot `alembic upgrade head`, then exits | exit code 0 |
 | `api` | FastAPI backend | `GET /healthz` |
 | `web` | React app on unprivileged nginx; proxies `/api` to the backend | `GET /healthz` |
+
+## Simulated production environment
+
+A separate compose project (`docker-compose.sim.yml`) runs a small **simulated** shop (api-gateway,
+orders-service, fulfilment-worker, PostgreSQL, Redis) under synthetic traffic, with Prometheus,
+Loki and Grafana, a deployment history, and a fault-injection control plane. It is the "production"
+that AI SRE will investigate. Full guide: [docs/simulator.md](docs/simulator.md).
+
+```bash
+uv run poe sim-up                              # build + start all 17 containers, wait for healthy
+uv run simctl scenarios                        # 8 predefined incidents
+uv run simctl trigger orders-n-plus-one-deploy --speed 20
+#   Grafana http://127.0.0.1:3000 · Prometheus http://127.0.0.1:9090 · Loki http://127.0.0.1:3100
+#   Deployments http://127.0.0.1:8202/api/v1/deployments
+uv run simctl clear                            # reverse it
+uv run poe sim-reset                           # back to the deterministic baseline
+uv run poe test-sim                            # live tests: every scenario + fault (~20 min)
+uv run poe sim-down
+```
+
+| Scenario | What breaks |
+|----------|-------------|
+| `orders-n-plus-one-deploy` | Deploy adds an N+1, unindexed query; DB pool saturates (red-herring deploy before it) |
+| `redis-outage` | Redis unreachable; catalog slower, carts fail, paid orders not queued |
+| `worker-deploy-backlog` | Worker deploy breaks shipping labels; fulfilment queue accumulates |
+| `payments-provider-errors` | Third-party payments provider returns 503s |
+| `db-connection-leak` | Feature flag leaks DB connections until the pool is exhausted |
+| `gateway-failed-canary` | Failed rollout leaves a broken canary serving 25% of traffic |
+| `gateway-memory-leak` | Deploy adds an unbounded cache; memory grows until OOM restarts |
+| `db-network-latency` | +120 ms on the network path to PostgreSQL |
+
+Single faults can be injected too: `uv run simctl fault-types`, then for example
+`uv run simctl inject api_latency --target api-gateway --param delay_ms=400`.
 
 ## Local development (without Docker for the app)
 
@@ -113,6 +151,10 @@ dependencies), so they work the same on Windows, macOS and Linux:
 | `uv run poe migrate` | Apply database migrations |
 | `uv run poe llm-smoke` | Send one prompt to the configured LLM (verifies your Gemini key; uses one request of quota) |
 | `uv run poe up` / `down` / `logs` / `ps` | Docker Compose shortcuts |
+| `uv run poe sim-up` / `sim-down` / `sim-logs` / `sim-ps` | Same for the simulated environment |
+| `uv run poe sim-reset` / `sim-reset-hard` | Reset the simulated environment to baseline / recreate it from scratch |
+| `uv run poe test-sim` | Live tests against the running simulated environment (~20 min) |
+| `uv run simctl …` | Trigger, inspect and clear simulated incidents |
 | `uv run poe --help` | List all tasks |
 
 Optional git hooks: `uv run pre-commit install`.
@@ -154,7 +196,17 @@ backend/            FastAPI API (later: agent worker), package ai_sre
     observability/    structlog setup, request-id/logging middleware
     agent/ tools/ knowledge/ remediation/ auth/ worker/ events/   (later phases)
   tests/            unit tests; tests/integration needs Postgres + Redis
-simulator/          simulated production + MCP servers (Phase 2), package ai_sre_simulator
+simulator/          simulated production environment (Phase 2), package ai_sre_simulator
+  src/ai_sre_simulator/
+    shop/             api-gateway, orders-service, fulfilment-worker, payments-provider, seed
+    deployer/         simulated CD system (deployment records, rollouts)
+    chaos/            fault-injection control plane, scenario engine, toxiproxy client
+    loadgen/          seeded synthetic traffic
+    common/           logging, metrics, HTTP middleware, DB/Redis instrumentation, faults
+    cli.py            simctl
+    testing.py        Prometheus/Loki/chaos clients for live tests
+  scenarios/          scenario timelines (YAML)
+  tests/              unit tests; tests/live needs the running simulated environment
 evals/              evaluation harness, ground truth, suites (Phase 4)
 knowledge/          synthetic postmortems and runbooks for RAG (Phase 6)
 frontend/           React + TypeScript + Vite + Tailwind
@@ -164,6 +216,7 @@ frontend/           React + TypeScript + Vite + Tailwind
   src/features/<x>/   per-feature API calls, hooks and components
   src/pages/          route-level screens
 deploy/docker/      Dockerfiles + nginx config
+deploy/sim/         Prometheus (+ alert rules), Loki, Alloy, Grafana, Toxiproxy, Postgres config for the simulator
 scripts/            helper scripts
 docs/               design documents
 .github/workflows/  CI

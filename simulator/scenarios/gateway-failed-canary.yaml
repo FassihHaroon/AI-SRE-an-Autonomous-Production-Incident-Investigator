@@ -1,0 +1,26 @@
+# Scenario F. Documentation: docs/scenarios/gateway-failed-canary.md
+id: gateway-failed-canary
+title: api-gateway rollout fails canary analysis and leaves broken canaries serving traffic
+category: failed_deploy
+seed: 390
+summary: >
+  api-gateway 3.9.0 makes the orders-service timeout configurable but ships a config value the
+  new parser rejects. The canary replicas take a quarter of the traffic and fail every request
+  with a ConfigError. Canary analysis marks the deployment failed after 20 s, but the canaries
+  are not scaled down, so a quarter of all gateway requests keep failing until someone aborts
+  the rollout.
+steps:
+  - at_s: 0
+    description: api-gateway 3.9.0 rollout with a broken canary (25% of traffic)
+    fault:
+      type: failed_deployment
+      target: api-gateway
+      params:
+        version: 3.9.0
+        canary_fraction: 0.25
+        changes_summary: "Make orders-service timeout configurable (ORDERS_SERVICE_TIMEOUT_MS)"
+signals:
+  - "Deployment d-407 api-gateway 3.9.0: in_progress, then failed (canary analysis)"
+  - "~25% 500s on api-gateway across every /api route; orders-service, DB and Redis healthy"
+  - "Error log lines carry version=3.9.0; successful requests carry version=3.8.0"
+  - "Loki: 'ConfigError: invalid value for ORDERS_SERVICE_TIMEOUT_MS'"

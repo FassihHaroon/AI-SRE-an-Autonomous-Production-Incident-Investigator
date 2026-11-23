@@ -1,13 +1,21 @@
 [project]
 name = "ai-sre-simulator"
-version = "0.1.0"
-description = "Deterministic production simulator and MCP tool servers for AI SRE"
+version = "0.2.0"
+description = "Simulated production environment (shop services, fault injection, scenarios) for AI SRE"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.165",
     "uvicorn[standard]>=0.54",
     "pydantic>=2.14",
+    "asyncpg>=0.32",
+    "redis>=8.2",
+    "httpx>=0.28",
+    "prometheus-client>=0.22",
+    "pyyaml>=6.0",
 ]
+
+[project.scripts]
+simctl = "ai_sre_simulator.cli:main"
 
 [build-system]
 requires = ["hatchling"]
