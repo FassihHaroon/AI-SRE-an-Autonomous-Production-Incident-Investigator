@@ -51,12 +51,14 @@ class InstrumentedPool:
         acquire_timeout_s: float,
         slow_queries: Callable[[], set[str]] | None = None,
         name: str = "primary",
+        application_name: str | None = None,
     ) -> None:
         self._dsn = dsn
         self.max_size = max_size
         self._acquire_timeout = acquire_timeout_s
         self._slow_queries = slow_queries or (lambda: set())
         self._name = name
+        self._server_settings = {"application_name": application_name} if application_name else None
         self._pool: asyncpg.Pool | None = None
         self._in_use = 0
         self._pending = 0
@@ -73,6 +75,7 @@ class InstrumentedPool:
                     max_size=self.max_size,
                     command_timeout=15,
                     timeout=5,
+                    server_settings=self._server_settings,
                 )
                 self._update_gauges()
                 return

@@ -27,6 +27,7 @@ dev = [
     "pytest>=9.2",
     "pytest-asyncio>=1.5",
     "httpx>=0.28",
+    "jsonschema>=4.26",
     "ruff>=0.17",
     "types-pyyaml>=6.0.12.20261122",
 ]
@@ -56,6 +57,8 @@ known-first-party = ["ai_sre", "ai_sre_simulator", "ai_sre_evals"]
 "**/tests/**" = ["S101", "S105", "S106", "PT011"]
 # Seed SQL is an f-string built from integer module constants only.
 "simulator/src/ai_sre_simulator/shop/seed.py" = ["S608"]
+# MCP tool modules embed long PromQL/SQL literals that read worse when split.
+"backend/src/ai_sre/mcp_servers/*.py" = ["E501"]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
@@ -132,4 +135,6 @@ sim-ps = { cmd = "docker compose -f docker-compose.sim.yml ps" }
 sim-logs = { cmd = "docker compose -f docker-compose.sim.yml logs -f --tail 100" }
 sim-reset = { cmd = "python scripts/sim_reset.py", help = "Clear all incidents, restore baseline deployments, drain queues" }
 sim-reset-hard = { cmd = "python scripts/sim_reset.py --hard", help = "Recreate the simulated environment from scratch (deletes its volumes)" }
+mcp = { cmd = "python -m ai_sre.mcp_servers serve", help = "Run the MCP servers on http://127.0.0.1:8300 (needs sim-up)" }
+test-mcp = { cmd = "pytest -m sim backend/tests/mcp -v", help = "Protocol-level MCP tests against the running simulated environment" }
 test-sim = { cmd = "pytest -m sim simulator/tests/live -v", help = "Live tests: trigger every scenario/fault, assert metrics + logs (needs sim-up; ~20 min)" }

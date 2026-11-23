@@ -139,10 +139,17 @@ Remediation `list_actions`/`dry_run` moves with them.
 
 ### Phase 3 — MCP servers + agent core: walking skeleton (11 days)
 
-**Added from Phase 2:** MCP servers over the simulated environment's monitoring APIs (telemetry =
-Prometheus + Loki, changes = deployer, infrastructure = Prometheus up/alerts/process metrics,
-database = postgres-exporter + slow-query log) with the common envelope, 4 KB cap, summarisation,
-bearer auth and contract tests that reuse `ai_sre_simulator.testing`. Estimate +3 days.
+**MCP part delivered 2026-11-23** ([mcp.md](mcp.md)): 8 MCP servers (official SDK 2.x,
+Streamable HTTP, one ASGI app) with 27 tools: logs (Loki), metrics (Prometheus), deployments,
+database (read-only PostgreSQL role), infrastructure, incidents (synthetic postmortems), registry,
+and approval-gated remediation (restart/rollback/clear queue/scale on the simulator). Typed
+structured output, schema validation, timeouts, structured errors, size caps, invocation logging,
+per-scope bearer tokens, remediation disabled by default, single-use HMAC approval tokens bound to
+the exact parameters. Offline protocol tests (in-memory transport) and live protocol tests over HTTP
+for every tool. The result cap is 16 KB (not 4 KB) because results are structured JSON with
+summaries rather than raw rows.
+
+The **agent core** part of this phase is delivered as Phase 4 (LangGraph engine), as requested.
 
 
 **Scope**

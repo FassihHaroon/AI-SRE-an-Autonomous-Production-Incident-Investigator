@@ -72,6 +72,8 @@ services:
     volumes:
       - sim-postgres-data:/var/lib/postgresql/data
       - ./deploy/sim/postgres/init.sql:/docker-entrypoint-initdb.d/10-simcontrol.sql:ro
+    # Exposed for SRE tooling (MCP database tools) with the read-only role `sre_readonly`.
+    ports: ["127.0.0.1:${SIM_POSTGRES_PORT:-55432}:5432"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
       interval: 5s
@@ -121,6 +123,7 @@ services:
     restart: "no"
     environment:
       <<: *env
+      SIM_SRE_READONLY_PASSWORD: ${SIM_SRE_READONLY_PASSWORD:-sre-readonly-sim}
       SIM_DATABASE_URL: postgresql://shop:${SIM_POSTGRES_PASSWORD:-simulated-only}@postgres:5432/shop
     depends_on:
       postgres: {condition: service_healthy}

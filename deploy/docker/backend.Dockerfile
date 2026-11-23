@@ -20,8 +20,9 @@ COPY evals/pyproject.toml evals/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-workspace --package ai-sre-backend
 
-# 2) Application code.
+# 2) Application code (+ the synthetic incident corpus read by the MCP incidents server).
 COPY backend backend
+COPY knowledge knowledge
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --package ai-sre-backend
 

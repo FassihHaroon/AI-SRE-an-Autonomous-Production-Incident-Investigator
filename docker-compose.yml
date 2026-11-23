@@ -72,6 +72,32 @@ services:
     # The image defines a HEALTHCHECK on /healthz (liveness).
     restart: unless-stopped
 
+  # MCP tool servers (Phase 3). They investigate the SIMULATED environment
+  # (docker-compose.sim.yml) through its published monitoring ports on the host.
+  mcp:
+    image: ai-sre-backend:dev
+    pull_policy: never
+    command: ["python", "-m", "ai_sre.mcp_servers", "serve", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      <<: *backend-env
+      AI_SRE_MCP_PROMETHEUS_URL: http://host.docker.internal:${SIM_PROMETHEUS_PORT:-9090}
+      AI_SRE_MCP_LOKI_URL: http://host.docker.internal:${SIM_LOKI_PORT:-3100}
+      AI_SRE_MCP_DEPLOYER_URL: http://host.docker.internal:${SIM_DEPLOYER_PORT:-8202}
+      AI_SRE_MCP_ORCHESTRATOR_URL: http://host.docker.internal:${SIM_CHAOS_PORT:-8210}
+      AI_SRE_MCP_DATABASE_DSN: postgresql://sre_readonly:${SIM_SRE_READONLY_PASSWORD:-sre-readonly-sim}@host.docker.internal:${SIM_POSTGRES_PORT:-55432}/shop
+      AI_SRE_MCP_READ_TOKEN: ${AI_SRE_MCP_READ_TOKEN:-dev-mcp-read-token}
+      AI_SRE_MCP_REMEDIATION_TOKEN: ${AI_SRE_MCP_REMEDIATION_TOKEN:-dev-mcp-remediation-token}
+      AI_SRE_MCP_ADMIN_TOKEN: ${AI_SRE_MCP_ADMIN_TOKEN:-dev-mcp-admin-token}
+      AI_SRE_MCP_APPROVAL_SECRET: ${AI_SRE_MCP_APPROVAL_SECRET:-dev-mcp-approval-secret-change-me}
+      AI_SRE_MCP_REMEDIATION_ENABLED: ${AI_SRE_MCP_REMEDIATION_ENABLED:-false}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports:
+      - "127.0.0.1:${MCP_HOST_PORT:-8300}:8000"
+    depends_on:
+      api:
+        condition: service_started   # same image; built by `api`
+    restart: unless-stopped
+
   web:
     build:
       context: .

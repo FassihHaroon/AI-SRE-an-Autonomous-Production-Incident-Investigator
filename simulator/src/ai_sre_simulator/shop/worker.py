@@ -56,11 +56,13 @@ class Worker:
             max_size=settings.db_pool_size,
             acquire_timeout_s=settings.db_acquire_timeout_s,
             slow_queries=self._slow_queries,
+            application_name=settings.service,
         )
         # BRPOP blocks for up to 1 s, so the socket timeout must be longer than that.
         self.cache = InstrumentedRedis(settings.redis_url, timeout_s=settings.redis_timeout_s + 1.5)
         self.ballast = MemoryBallast(self.runtime)
         self.runtime.on_change(self._on_runtime_change)
+        self._consumers: list[asyncio.Task[None]] = []
 
     def _slow_queries(self) -> set[str]:
         names: set[str] = set()
@@ -86,19 +88,32 @@ class Worker:
             queue=FULFILMENT_QUEUE,
         )
         tasks = [
-            asyncio.create_task(self._consume(i), name=f"consumer-{i}")
-            for i in range(self.settings.worker_concurrency)
+            asyncio.create_task(self._monitor_queue(), name="queue-monitor"),
+            asyncio.create_task(self._supervise_consumers(), name="consumer-supervisor"),
         ]
-        tasks.append(asyncio.create_task(self._monitor_queue(), name="queue-monitor"))
         try:
             await asyncio.gather(*tasks)
         finally:
-            for t in tasks:
+            for t in [*tasks, *self._consumers]:
                 t.cancel()
             await self.ballast.stop()
             await self.runtime.stop()
             await self.cache.close()
             await self.pool.close()
+
+    async def _supervise_consumers(self) -> None:
+        """Run ``concurrency x replicas`` consumers (replicas come from the orchestrator)."""
+        while True:
+            wanted = self.settings.worker_concurrency * max(1, self.runtime.state.replicas)
+            while len(self._consumers) < wanted:
+                index = len(self._consumers)
+                self._consumers.append(
+                    asyncio.create_task(self._consume(index), name=f"consumer-{index}")
+                )
+            while len(self._consumers) > wanted:
+                self._consumers.pop().cancel()
+            metrics.WORKER_CONSUMERS.set(len(self._consumers))
+            await asyncio.sleep(1)
 
     async def _consume(self, consumer: int) -> None:
         while True:

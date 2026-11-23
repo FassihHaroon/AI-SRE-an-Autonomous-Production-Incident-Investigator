@@ -243,3 +243,8 @@ class RuntimeFaults(BaseModel):
 
     epoch: int
     faults: list[RuntimeFault]
+    # Orchestrator state for this service (remediation actions):
+    restart_generation: int = (
+        0  # incremented by a restart; the service process exits and Docker restarts it
+    )
+    replicas: int = 1  # desired replicas (the worker runs `concurrency x replicas` consumers)

@@ -48,6 +48,14 @@ class DeployRequest(BaseModel):
     canary: CanarySpec | None = None
 
 
+class RollbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=300)
+    author: str = Field(default="oncall", max_length=80)
+    rollout_s: float = Field(default=5.0, ge=0, le=120)
+
+
 class Deployment(BaseModel):
     """Public view of a deployment record (what an SRE sees in the CD tool)."""
 

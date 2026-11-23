@@ -93,6 +93,8 @@ class ChaosEngine:
         self.faults: dict[str, ActiveFault] = {}
         self.runs: dict[str, ScenarioRun] = {}
         self.epoch = 1
+        self.restarts: dict[str, int] = {}
+        self.replicas: dict[str, int] = {}
         self._counters = {"fault": 0, "run": 0}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._lock = asyncio.Lock()
@@ -130,6 +132,10 @@ class ChaosEngine:
                 value = json.loads(row["value"])
                 if row["key"] == "epoch":
                     self.epoch = int(value)
+                elif row["key"] == "restarts":
+                    self.restarts = {str(k): int(v) for k, v in value.items()}
+                elif row["key"] == "replicas":
+                    self.replicas = {str(k): int(v) for k, v in value.items()}
                 elif row["key"] in self._counters:
                     self._counters[row["key"]] = int(value)
         # Toxiproxy keeps state in memory only: re-apply network faults after a restart.
@@ -207,7 +213,40 @@ class ChaosEngine:
             for f in self.faults.values()
             if f.target == service and FAULT_SPECS[f.type].mechanism in ("in_app", "traffic")
         ]
-        return RuntimeFaults(epoch=self.epoch, faults=faults)
+        return RuntimeFaults(
+            epoch=self.epoch,
+            faults=faults,
+            restart_generation=self.restarts.get(service, 0),
+            replicas=self.replicas.get(service, 1),
+        )
+
+    # ------------------------------------------------------------------ orchestrator actions
+    async def restart(self, service: str) -> dict[str, Any]:
+        """Restart a service: its process exits on the next poll and Docker starts a new one."""
+        async with self._lock:
+            self.restarts[service] = self.restarts.get(service, 0) + 1
+            await self._save_state("restarts", self.restarts)
+        log(logger, logging.INFO, "restart requested", target=service)
+        return {"service": service, "restart_generation": self.restarts[service]}
+
+    async def scale(self, service: str, replicas: int) -> dict[str, Any]:
+        async with self._lock:
+            previous = self.replicas.get(service, 1)
+            self.replicas[service] = replicas
+            await self._save_state("replicas", self.replicas)
+        log(logger, logging.INFO, "scaled", target=service, replicas=replicas)
+        return {"service": service, "previous_replicas": previous, "replicas": replicas}
+
+    async def clear_queue(self, queue: str) -> dict[str, Any]:
+        key = {"fulfilment": FULFILMENT_QUEUE, "fulfilment-dead-letter": FULFILMENT_DLQ}[queue]
+        client: aioredis.Redis = aioredis.from_url(self.settings.redis_url, socket_timeout=3)
+        try:
+            removed = int(await client.llen(key))
+            await client.delete(key)
+        finally:
+            await client.aclose()
+        log(logger, logging.INFO, "queue cleared", queue=queue, removed=removed)
+        return {"queue": queue, "removed_jobs": removed}
 
     # ------------------------------------------------------------------ faults
     async def inject(self, req: FaultRequest, run_id: str | None = None) -> ActiveFault:
@@ -522,6 +561,8 @@ class ChaosEngine:
             self._counters = {"fault": 0, "run": 0}
             for key in self._counters:
                 await self._save_state(key, 0)
+            self.replicas = {}
+            await self._save_state("replicas", self.replicas)
             self.epoch += 1
             await self._save_state("epoch", self.epoch)
         # Give services one poll interval to drop in-app effects (return leaked connections).

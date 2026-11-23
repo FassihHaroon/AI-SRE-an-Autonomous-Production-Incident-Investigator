@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -39,6 +40,7 @@ class RuntimeState:
     flags: dict[str, Any] = field(default_factory=dict)
     faults: tuple[RuntimeFault, ...] = ()
     epoch: int = 0
+    replicas: int = 1
 
     def flag(self, name: str, default: Any = None) -> Any:
         return self.flags.get(name, default)
@@ -58,6 +60,7 @@ class Runtime:
         self._hooks: list[ChangeHook] = []
         self._task: asyncio.Task[None] | None = None
         self._client = httpx.AsyncClient(timeout=2.0)
+        self._restart_seen: int | None = None
         self._set_build_info(None, self.state.version)
 
     @property
@@ -105,10 +108,18 @@ class Runtime:
             payload = faults_resp.json()
             epoch = int(payload["epoch"])
             faults = tuple(RuntimeFault.model_validate(f) for f in payload["faults"])
+            restart_generation = int(payload.get("restart_generation", 0))
+            replicas = int(payload.get("replicas", 1))
         except (httpx.HTTPError, KeyError, ValueError, TypeError):
             return False
+        self._check_restart(restart_generation)
         new = RuntimeState(
-            version=version, seed=self._settings.seed, flags=flags, faults=faults, epoch=epoch
+            version=version,
+            seed=self._settings.seed,
+            flags=flags,
+            faults=faults,
+            epoch=epoch,
+            replicas=replicas,
         )
         old = self.state
         if new != old:
@@ -131,6 +142,24 @@ class Runtime:
                 except Exception:
                     logger.exception("runtime change hook failed")
         return True
+
+    def _check_restart(self, generation: int) -> None:
+        """A restart requested by the orchestrator: exit; Docker's restart policy starts a fresh
+        process (memory, connections and in-process state are really gone)."""
+        if self._restart_seen is None:
+            self._restart_seen = generation  # first poll after start: baseline, not a request
+            return
+        if generation > self._restart_seen:
+            self._restart_seen = generation
+            log(
+                logger,
+                logging.WARNING,
+                "restart requested by orchestrator, shutting down",
+                restart_generation=generation,
+            )
+            for handler in logging.getLogger().handlers:
+                handler.flush()
+            asyncio.get_running_loop().call_later(0.3, os._exit, 0)
 
     def _set_build_info(self, old: str | None, new: str) -> None:
         if self._track_deployments:

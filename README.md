@@ -10,7 +10,11 @@ Everything runs locally with Docker Compose against a **deterministic simulated 
 environment**. The only external dependency is an LLM API (the Gemini free tier during
 development).
 
-> **Status: Phase 2 of 11 complete.** Phase 1 delivered the platform skeleton (API, database,
+> **Status: Phase 3 of 11 complete.** Phase 3 adds the **MCP tool layer**: 8 MCP servers
+> (27 tools: logs, metrics, deployments, database, infrastructure, incidents, approval-gated
+> remediation, registry) over Streamable HTTP ([docs/mcp.md](docs/mcp.md)).
+>
+> **Phase 2:** Phase 1 delivered the platform skeleton (API, database,
 > cache, web UI, health checks, logging, LLM provider layer, tests, CI). Phase 2 adds a
 > **simulated production environment**: a small shop under synthetic load with Prometheus, Loki,
 > Grafana, deployment records and a reversible fault-injection system with 8 incident scenarios
@@ -21,6 +25,7 @@ development).
 
 | Document | What's in it |
 |----------|--------------|
+| [docs/mcp.md](docs/mcp.md) | MCP tool servers: run/configure, tool contract, every tool, remediation safety, sample calls |
 | [docs/simulator.md](docs/simulator.md) | The simulated production environment: topology, telemetry, fault injection, scenarios, reset |
 | [docs/scenarios/](docs/scenarios/) | One page per incident scenario: timeline, expected signals, root cause, clearing |
 | [docs/architecture.md](docs/architecture.md) | Components, data model, API, observability, deployment, MVP vs. future |
@@ -115,6 +120,20 @@ uv run poe sim-down
 Single faults can be injected too: `uv run simctl fault-types`, then for example
 `uv run simctl inject api_latency --target api-gateway --param delay_ms=400`.
 
+## MCP tool servers
+
+The agent investigates through MCP tools, not pasted telemetry. Full guide: [docs/mcp.md](docs/mcp.md).
+
+```bash
+uv run poe sim-up                                  # the environment the tools read
+uv run poe mcp                                     # 8 MCP servers on http://127.0.0.1:8300/mcp/<server>/
+uv run python -m ai_sre.mcp_servers registry       # discover servers and tools
+uv run poe test-mcp                                # protocol-level tests over HTTP (~3 min)
+```
+
+Remediation tools are disabled unless `AI_SRE_MCP_REMEDIATION_ENABLED=true`, and every action needs
+a human approval: `uv run python -m ai_sre.mcp_servers approve <request-id> --approver <name>`.
+
 ## Local development (without Docker for the app)
 
 Run only the data stores in Docker and the app on your machine, with hot reload:
@@ -155,6 +174,7 @@ dependencies), so they work the same on Windows, macOS and Linux:
 | `uv run poe sim-reset` / `sim-reset-hard` | Reset the simulated environment to baseline / recreate it from scratch |
 | `uv run poe test-sim` | Live tests against the running simulated environment (~20 min) |
 | `uv run simctl …` | Trigger, inspect and clear simulated incidents |
+| `uv run poe mcp` / `test-mcp` | Run the MCP servers / protocol-level MCP tests against the simulated environment |
 | `uv run poe --help` | List all tasks |
 
 Optional git hooks: `uv run pre-commit install`.
@@ -193,6 +213,8 @@ backend/            FastAPI API (later: agent worker), package ai_sre
     services/         business logic (health checks now)
     db/               Postgres engine + ORM base, Redis client, Alembic migrations
     integrations/llm/ LLM provider interface, Gemini + scripted providers
+    mcp_servers/      MCP tool servers (logs, metrics, deployments, database, infrastructure,
+                      incidents, remediation, registry), approvals, auth
     observability/    structlog setup, request-id/logging middleware
     agent/ tools/ knowledge/ remediation/ auth/ worker/ events/   (later phases)
   tests/            unit tests; tests/integration needs Postgres + Redis
@@ -208,7 +230,7 @@ simulator/          simulated production environment (Phase 2), package ai_sre_s
   scenarios/          scenario timelines (YAML)
   tests/              unit tests; tests/live needs the running simulated environment
 evals/              evaluation harness, ground truth, suites (Phase 4)
-knowledge/          synthetic postmortems and runbooks for RAG (Phase 6)
+knowledge/          synthetic postmortems (read by the incidents MCP server; RAG in Phase 6)
 frontend/           React + TypeScript + Vite + Tailwind
   src/app/            router, query client
   src/components/ui/  reusable primitives (Button, Card, Badge, Spinner)

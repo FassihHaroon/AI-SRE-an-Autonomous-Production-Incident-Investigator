@@ -289,10 +289,12 @@ def test_f_gateway_failed_canary(fresh: Sim) -> None:
         '{service="api-gateway", level="ERROR"} | json | version="3.9.0"', timeout=30
     )
     assert any("ConfigError" in str(line.get("error")) for line in canary_errors)
-    orders_5xx = fresh.prom.value(
-        rate('http_server_requests_total{service="orders-service",status=~"5.."}')
+    # Downstream stays healthy (wait out residue of a previous test in the 30 s rate window).
+    fresh.prom.wait_for(
+        rate('http_server_requests_total{service="orders-service",status=~"5.."}'),
+        lambda v: v == 0,
+        what="orders-service has no 5xx",
     )
-    assert (orders_5xx or 0) == 0, "downstream services are healthy"
 
     deployment = fresh.wait_deployment("d-407", "failed", timeout=60)
     assert (deployment["service"], deployment["version"]) == ("api-gateway", "3.9.0")

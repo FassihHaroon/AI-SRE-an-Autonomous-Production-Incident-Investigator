@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from ai_sre_simulator.testing import WINDOW, Sim
@@ -84,7 +86,7 @@ def test_route_labels_are_templates_not_raw_paths(fresh: Sim) -> None:
     rows = fresh.prom.vector("count by (service, route) (http_server_requests_total)")
     routes = {r["metric"]["route"] for r in rows}
     assert "/api/products/{product_id}" in routes
-    assert not [r for r in routes if any(ch.isdigit() for ch in r)], routes
+    assert not [r for r in routes if re.search(r"/\d+(/|$)", r)], routes
 
 
 def test_structured_logs_have_required_fields(fresh: Sim) -> None:

@@ -11,7 +11,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -31,6 +31,19 @@ class TriggerRequest(BaseModel):
 
 class ResetRequest(BaseModel):
     data: bool = Field(default=False, description="Also delete orders created since the seed.")
+
+
+class RestartRequest(BaseModel):
+    service: Literal["api-gateway", "orders-service", "fulfilment-worker"]
+
+
+class ScaleRequest(BaseModel):
+    service: Literal["api-gateway", "orders-service", "fulfilment-worker"]
+    replicas: int = Field(ge=1, le=10)
+
+
+class ClearQueueRequest(BaseModel):
+    queue: Literal["fulfilment", "fulfilment-dead-letter"]
 
 
 class ScenarioSummary(BaseModel):
@@ -152,6 +165,24 @@ def create_app(settings: Settings) -> FastAPI:
     @app.delete("/api/v1/faults/{fault_id}", response_model=ActiveFault)
     async def remove(fault_id: str) -> ActiveFault:
         return await engine.remove(fault_id)
+
+    # ---------------------------------------------------------------- orchestrator actions
+    # Used by the (approval-gated) remediation tools. They act like a container orchestrator.
+    @app.post("/api/v1/actions/restart")
+    async def restart(body: RestartRequest) -> dict[str, Any]:
+        return await engine.restart(body.service)
+
+    @app.post("/api/v1/actions/scale")
+    async def scale(body: ScaleRequest) -> dict[str, Any]:
+        return await engine.scale(body.service, body.replicas)
+
+    @app.post("/api/v1/actions/clear-queue")
+    async def clear_queue(body: ClearQueueRequest) -> dict[str, Any]:
+        return await engine.clear_queue(body.queue)
+
+    @app.get("/api/v1/actions/state")
+    async def action_state() -> dict[str, Any]:
+        return {"restarts": engine.restarts, "replicas": engine.replicas}
 
     # ---------------------------------------------------------------- whole environment
     @app.get("/api/v1/status")

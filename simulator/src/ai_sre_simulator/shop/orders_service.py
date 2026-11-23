@@ -63,6 +63,7 @@ def create_app(settings: Settings) -> FastAPI:
         max_size=settings.db_pool_size,
         acquire_timeout_s=settings.db_acquire_timeout_s,
         slow_queries=slow_queries,
+        application_name=settings.service,
     )
     cache = InstrumentedRedis(settings.redis_url, settings.redis_timeout_s)
     payments = ServiceClient("payments-provider", settings.payments_url, timeout_s=2.5)

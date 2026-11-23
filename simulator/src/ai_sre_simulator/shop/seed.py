@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 
 import asyncpg
@@ -127,6 +128,24 @@ SELECT setval('order_items_id_seq', (SELECT max(id) FROM order_items));
 """
 
 
+MONITORING_ROLE = "sre_readonly"
+
+
+async def ensure_monitoring_role(conn: asyncpg.Connection) -> None:
+    """A read-only login for SRE tooling: pg_monitor (pg_stat_* incl. query texts), no data."""
+    password = os.environ.get("SIM_SRE_READONLY_PASSWORD", "sre-readonly-sim")
+    exists = await conn.fetchval("SELECT 1 FROM pg_roles WHERE rolname = $1", MONITORING_ROLE)
+    verb = "ALTER" if exists else "CREATE"
+    statement = await conn.fetchval(
+        f"SELECT format('{verb} ROLE %I LOGIN PASSWORD %L', $1::text, $2::text)",
+        MONITORING_ROLE,
+        password,
+    )
+    await conn.execute(statement)
+    await conn.execute(f"GRANT pg_monitor TO {MONITORING_ROLE}")
+    await conn.execute(f"GRANT CONNECT ON DATABASE shop TO {MONITORING_ROLE}")
+
+
 async def seed(dsn: str) -> None:
     for attempt in range(60):
         try:
@@ -138,6 +157,7 @@ async def seed(dsn: str) -> None:
             await asyncio.sleep(1)
     try:
         await conn.execute(SCHEMA)
+        await ensure_monitoring_role(conn)
         if await conn.fetchval("SELECT count(*) FROM products"):
             await conn.execute(CONSTRAINTS)
             log(logger, logging.INFO, "shop data already present, skipping seed")

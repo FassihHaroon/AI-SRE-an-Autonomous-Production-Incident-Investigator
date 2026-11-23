@@ -82,6 +82,7 @@ WORKER_DURATION = Histogram(
     "worker_job_duration_seconds", "Job processing time", ["queue"], buckets=LATENCY_BUCKETS
 )
 WORKER_BUSY = Gauge("worker_busy_consumers", "Consumers currently processing a job")
+WORKER_CONSUMERS = Gauge("worker_consumers", "Consumers running (concurrency x replicas)")
 
 # --- Business / build
 ORDERS = Counter("orders_created_total", "Order placement attempts by result", ["result"])

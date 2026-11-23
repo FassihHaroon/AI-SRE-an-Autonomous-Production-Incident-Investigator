@@ -34,8 +34,10 @@ from ai_sre_simulator.common.logging import log
 from ai_sre_simulator.common.settings import Settings
 from ai_sre_simulator.deployer.models import (
     BASELINE,
+    AppService,
     Deployment,
     DeployRequest,
+    RollbackRequest,
     RuntimeConfig,
     ServiceVersion,
     commit_sha_for,
@@ -138,6 +140,20 @@ class DeployerStore:
             await conn.execute("TRUNCATE deployments")
             await conn.execute(f"ALTER SEQUENCE deployment_seq RESTART WITH {FIRST_ID}")
             await self._seed_baseline(conn)
+
+    async def rollback_target(self, service: str) -> RuntimeConfig | None:
+        """The runtime the service ran before its current one (what a rollback restores)."""
+        async with self.pool.connection() as conn:
+            rows = await conn.fetch(
+                "SELECT runtime_version, runtime_flags FROM deployments WHERE service = $1 "
+                "AND runtime_version IS NOT NULL ORDER BY seq DESC LIMIT 2",
+                service,
+            )
+        if len(rows) < 2:
+            return None
+        return RuntimeConfig(
+            version=rows[1]["runtime_version"], flags=_json(rows[1]["runtime_flags"])
+        )
 
     async def runtime(self, service: str) -> RuntimeConfig | None:
         async with self.pool.connection() as conn:
@@ -328,6 +344,23 @@ def create_app(settings: Settings) -> FastAPI:
         rollouts.add(task)
         task.add_done_callback(rollouts.discard)
         return deployment
+
+    @app.post("/api/v1/deployments/{service}/rollback", status_code=202, response_model=Deployment)
+    async def rollback(service: AppService, body: RollbackRequest) -> Deployment:
+        current = await store.runtime(service)
+        target = await store.rollback_target(service)
+        if current is None or target is None:
+            raise HTTPException(409, f"{service} has no earlier deployment to roll back to")
+        req = DeployRequest(
+            service=service,
+            version=target.version,
+            kind="rollback",
+            changes_summary=f"Rollback {current.version} -> {target.version}: {body.reason}",
+            author=body.author,
+            flags=target.flags,
+            rollout_s=body.rollout_s,
+        )
+        return await create_deployment(req)
 
     @app.get("/api/v1/deployments", response_model=list[Deployment])
     async def list_deployments(
